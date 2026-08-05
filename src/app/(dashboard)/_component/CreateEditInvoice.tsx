@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import ProductPicker from "./ProductPicker";
 
 interface ICreateEditInvoice {
   firstName?: string | undefined;
@@ -583,25 +584,12 @@ export default function CreateEditInvoice({
                 {/* Pick from the catalog and the name, SKU and tier price all
                     fill in. The text field below stays authoritative, so a
                     one-off line that is not a stocked product still works. */}
-                <Select
-                  value={watch(`items.${index}.productId`) ?? ""}
-                  onValueChange={(value) => handleSelectProduct(index, value)}
+                <ProductPicker
+                  products={products}
+                  value={watch(`items.${index}.productId`)}
+                  onSelect={(product) => handleSelectProduct(index, product._id)}
                   disabled={isLoading}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a product..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products?.map((product) => (
-                      <SelectItem key={product._id} value={product._id}>
-                        {product.brandName
-                          ? `${product.brandName} — `
-                          : ""}
-                        {product.name} ({product.sku})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
                 <Input
                   placeholder="or type a custom item"
                   type="text"
