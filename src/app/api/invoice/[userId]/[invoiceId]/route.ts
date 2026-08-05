@@ -110,10 +110,19 @@ export async function GET(
     text(invoice.to.address3, 15, 85);
     text(invoice.to.email, 15, 90);
 
+    // Left edges for the text columns, right edges for the numeric ones —
+    // amounts read far better right-aligned, and it keeps them clear of the
+    // column to their left however long they get.
     const ITEM_X = 18;
-    const SKU_X = 95;
-    const QUANTITY_X = 125;
-    const PRICE_X = 145;
+    const ITEM_WIDTH = 48;
+    const SKU_X = 68;
+    // Sized so a worst-case generated SKU — brand, reference and colour, e.g.
+    // ARMANI-EXCHANGE-AX2103-ROSE-GOLD — prints whole. A clipped SKU is worse
+    // than none, because the customer cannot reorder with it.
+    const SKU_WIDTH = 52;
+    const SKU_FONT_SIZE = 7.5;
+    const QUANTITY_X = 128;
+    const PRICE_X = 158;
     const TOTAL_X = FULL_WIDTH - 15;
 
     const drawItemsHeader = (y: number) => {
@@ -124,8 +133,8 @@ export async function GET(
       doc.setFont("times", "bold");
       text("Item", ITEM_X, y);
       text("SKU", SKU_X, y);
-      text("Qty", QUANTITY_X, y);
-      text("Price", PRICE_X, y);
+      text("Qty", QUANTITY_X, y, { align: "right" });
+      text("Price", PRICE_X, y, { align: "right" });
       text("Total", TOTAL_X, y, { align: "right" });
       doc.setTextColor("#000");
       doc.setFont("times", "normal");
@@ -146,13 +155,28 @@ export async function GET(
         yAxis += 6;
       }
 
-      // Long product names would otherwise run under the SKU column.
-      const name = doc.splitTextToSize(item.item_name, 72)[0];
-      text(name, ITEM_X, yAxis);
+      // Names wrap rather than clip — truncating "Rose Gold" to "Rose" reads
+      // as a different variant, which on an invoice is a real error.
+      const nameLines: string[] = doc.splitTextToSize(
+        item.item_name,
+        ITEM_WIDTH
+      );
+      nameLines.forEach((line, lineIndex) => {
+        text(line, ITEM_X, yAxis + lineIndex * 4);
+      });
+
+      // Generated SKUs are brand-reference-colour and get long, so they print
+      // a size down rather than overlapping the quantity beside them.
+      doc.setFontSize(SKU_FONT_SIZE);
       text(item.sku, SKU_X, yAxis);
-      text(item.quantity, QUANTITY_X, yAxis);
-      text(money(item.price), PRICE_X, yAxis);
+      doc.setFontSize(10);
+
+      text(item.quantity, QUANTITY_X, yAxis, { align: "right" });
+      text(money(item.price), PRICE_X, yAxis, { align: "right" });
       text(money(item.total), TOTAL_X, yAxis, { align: "right" });
+
+      // Push the next row down past any wrapped lines.
+      yAxis += (nameLines.length - 1) * 4;
     }
 
     //totals — keep them on the page rather than running off the bottom
