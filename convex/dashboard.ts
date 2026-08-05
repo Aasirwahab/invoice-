@@ -1,23 +1,25 @@
 import { query } from "./_generated/server";
-import { currentUser } from "./users";
+import { currentMember } from "./orgs";
 
 /**
- * Last-30-days rollup for the dashboard. Returns the same shape the old
- * GET /api/dashboard returned, minus the currency symbol — the client already
- * has the user's currency, so formatting stays on the client.
+ * Last-30-days rollup for the dashboard, across the whole organization.
+ * Returns the raw numbers plus the org currency; formatting stays on the
+ * client.
  */
 export const stats = query({
   args: {},
   handler: async (ctx) => {
-    const user = await currentUser(ctx);
-    if (!user) return null;
+    const member = await currentMember(ctx);
+    if (!member) return null;
+
+    const org = await ctx.db.get(member.orgId);
 
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
     const recent = (
       await ctx.db
         .query("invoices")
-        .withIndex("by_userId", (q) => q.eq("userId", user._id))
+        .withIndex("by_orgId", (q) => q.eq("orgId", member.orgId))
         .order("desc")
         .collect()
     ).filter((inv) => inv.invoice_date >= thirtyDaysAgo);
@@ -32,7 +34,7 @@ export const stats = query({
 
     return {
       totalRevenue,
-      currency: user.currency ?? "USD",
+      currency: org?.defaultCurrency ?? "USD",
       totalInvoice: recent.length,
       paidInvoice: recent.filter((i) => i.status === "PAID").length,
       UnpaidInvoice: recent.filter((i) => i.status === "UNPAID").length,

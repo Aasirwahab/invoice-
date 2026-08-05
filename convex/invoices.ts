@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { currentUser, requireUser } from "./users";
+import { requireUser } from "./users";
+import { currentMember, requireRole } from "./orgs";
 
 const partyValidator = v.object({
   name: v.string(),
@@ -54,20 +55,20 @@ export const list = query({
     invoiceId: v.optional(v.id("invoices")),
   },
   handler: async (ctx, args) => {
-    const user = await currentUser(ctx);
-    if (!user) {
+    const member = await currentMember(ctx);
+    if (!member) {
       return { data: [], totalCount: 0, totalPage: 0, page: 1 };
     }
 
     if (args.invoiceId) {
       const one = await ctx.db.get(args.invoiceId);
-      const owned = one && one.userId === user._id ? [one] : [];
+      const owned = one && one.orgId === member.orgId ? [one] : [];
       return { data: owned, totalCount: owned.length, totalPage: 1, page: 1 };
     }
 
     const all = await ctx.db
       .query("invoices")
-      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .withIndex("by_orgId", (q) => q.eq("orgId", member.orgId))
       .order("desc")
       .collect();
 
@@ -86,11 +87,11 @@ export const list = query({
 export const getById = query({
   args: { invoiceId: v.id("invoices") },
   handler: async (ctx, args) => {
-    const user = await currentUser(ctx);
-    if (!user) return null;
+    const member = await currentMember(ctx);
+    if (!member) return null;
 
     const invoice = await ctx.db.get(args.invoiceId);
-    if (!invoice || invoice.userId !== user._id) return null;
+    if (!invoice || invoice.orgId !== member.orgId) return null;
 
     return invoice;
   },
@@ -99,10 +100,14 @@ export const getById = query({
 export const create = mutation({
   args: invoiceFields,
   handler: async (ctx, args) => {
+    const member = await requireRole(ctx, "SALES");
     const user = await requireUser(ctx);
 
     const invoiceId = await ctx.db.insert("invoices", {
       ...args,
+      orgId: member.orgId,
+      // Retained alongside orgId: the public PDF link emailed to clients is
+      // keyed by userId, so dropping it would break links already sent.
       userId: user._id,
     });
 
@@ -128,12 +133,12 @@ export const update = mutation({
     status: v.optional(statusValidator),
   },
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const member = await requireRole(ctx, "SALES");
 
     const { invoiceId, ...rest } = args;
     const existing = await ctx.db.get(invoiceId);
 
-    if (!existing || existing.userId !== user._id) {
+    if (!existing || existing.orgId !== member.orgId) {
       throw new Error("No invoice found");
     }
 
@@ -158,10 +163,17 @@ export const getPublic = query({
     const invoice = await ctx.db.get(args.invoiceId);
     if (!invoice || invoice.userId !== args.userId) return null;
 
-    const settings = await ctx.db
-      .query("settings")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .unique();
+    // Branding is org-level now, but links emailed before Phase 0 carry a
+    // userId, so fall back to the per-user row for invoices not yet backfilled.
+    const settings = invoice.orgId
+      ? await ctx.db
+          .query("settings")
+          .withIndex("by_orgId", (q) => q.eq("orgId", invoice.orgId))
+          .unique()
+      : await ctx.db
+          .query("settings")
+          .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+          .unique();
 
     return { invoice, settings };
   },

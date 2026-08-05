@@ -1,21 +1,25 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { currentUser, requireUser } from "./users";
+import { requireUser } from "./users";
+import { currentMember, requireRole } from "./orgs";
 
+/**
+ * Invoice branding — logo and signature. Org-scoped as of Phase 0, so staff
+ * share one set of branding rather than each carrying their own.
+ */
 export const get = query({
   args: {},
   handler: async (ctx) => {
-    const user = await currentUser(ctx);
-    if (!user) return null;
+    const member = await currentMember(ctx);
+    if (!member) return null;
 
     return await ctx.db
       .query("settings")
-      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .withIndex("by_orgId", (q) => q.eq("orgId", member.orgId))
       .unique();
   },
 });
 
-/** Create-or-update, mirroring the old POST /api/settings behaviour. */
 export const upsert = mutation({
   args: {
     logo: v.optional(v.string()),
@@ -27,11 +31,12 @@ export const upsert = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const member = await requireRole(ctx, "MANAGER");
     const user = await requireUser(ctx);
 
     const existing = await ctx.db
       .query("settings")
-      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .withIndex("by_orgId", (q) => q.eq("orgId", member.orgId))
       .unique();
 
     const patch = {
@@ -42,7 +47,12 @@ export const upsert = mutation({
     if (existing) {
       await ctx.db.patch(existing._id, patch);
     } else {
-      await ctx.db.insert("settings", { userId: user._id, ...patch });
+      await ctx.db.insert("settings", {
+        orgId: member.orgId,
+        // userId retained so the pre-Phase-0 public PDF fallback still resolves.
+        userId: user._id,
+        ...patch,
+      });
     }
 
     return { message: "Setting updated successfully" };

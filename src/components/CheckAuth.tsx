@@ -2,7 +2,7 @@
 //component for protected page
 
 import { auth } from "@clerk/nextjs/server";
-import { getAppUser } from "@/lib/currentUser";
+import { getAppMembership } from "@/lib/currentUser";
 import { redirect } from "next/navigation";
 
 //dashboard
@@ -13,11 +13,11 @@ export async function ProtectedPage(){
         redirect("/sign-in")
     }
 
-    const user = await getAppUser()
-
     //no Convex row yet, or onboarding never finished — both land on /onboarding,
-    //which creates the row and sets the currency
-    if(!user || !user.currency){
+    //which creates the organization and makes this user its owner
+    const membership = await getAppMembership()
+
+    if(!membership){
         redirect("/onboarding")
     }
 
@@ -36,9 +36,9 @@ export async function UnprotectedPage(){
         return <></>
     }
 
-    const user = await getAppUser()
+    const membership = await getAppMembership()
 
-    if(!user || !user.currency){
+    if(!membership){
         redirect("/onboarding")
     }
 

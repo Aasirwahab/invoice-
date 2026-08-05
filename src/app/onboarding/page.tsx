@@ -21,7 +21,7 @@ import { onboardingSchema } from "@/lib/zodSchema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
@@ -30,6 +30,7 @@ export default function OnboardingPage() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<z.infer<typeof onboardingSchema>>({
     resolver: zodResolver(onboardingSchema),
@@ -38,28 +39,48 @@ export default function OnboardingPage() {
     },
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const router = useRouter()
 
   const storeUser = useMutation(api.users.store)
   const updateProfile = useMutation(api.users.updateProfile)
+  const claimInvite = useMutation(api.orgs.claimInvite)
+  const createOrg = useMutation(api.orgs.createOrg)
 
-  //first stop after sign-up, so this is where the Convex user row gets created
+  //first stop after sign-up, so this is where the Convex user row gets created.
+  //claimInvite runs straight after in case an owner already added this email to
+  //the team — staff join an existing company instead of creating a second one.
   useEffect(()=>{
-    storeUser().catch((error)=>console.log(error))
-  },[storeUser])
+    storeUser()
+      .then(()=>claimInvite())
+      .then((result)=>{
+        if(result?.claimed){
+          router.replace("/dashboard")
+        }
+      })
+      .catch((error)=>console.log(error))
+  },[storeUser, claimInvite, router])
 
   const onSubmit = async(data : z.infer<typeof onboardingSchema>)=>{
     try {
         setIsLoading(true)
+        setSubmitError(null)
         await storeUser()
         await updateProfile({
             firstName : data.firstName,
             lastName : data.lastName,
-            currency : data.currency ?? "USD",
+        })
+        await createOrg({
+            name : data.companyName,
+            defaultCurrency : data.currency ?? "USD",
         })
         router.push("/dashboard")
     } catch (error) {
-        console.log(error)
+        //onboarding is the one screen with no other way forward, so a silent
+        //console.log here strands the user on a dead form
+        setSubmitError(
+          error instanceof Error ? error.message : "Something went wrong"
+        )
     }finally{
         setIsLoading(false)
     }
@@ -74,7 +95,7 @@ export default function OnboardingPage() {
         <CardHeader>
           <CardTitle>You are almost finished</CardTitle>
           <CardDescription>
-            Enter your information to create an account.
+            Tell us about you and your company to get set up.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -107,28 +128,55 @@ export default function OnboardingPage() {
               }
             </div>
             <div className="grid gap-2">
-              <Label>Select Currency</Label>
-              <Select
-                defaultValue="USD"
-                {...register("currency")}
+              <Label>Company Name</Label>
+              <Input
+                placeholder="Acme Watch Trading"
+                type="text"
+                {...register("companyName", { required: true })}
                 disabled={isLoading}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select currency" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.keys(currencyOption).map(
-                    (item: string, index: number) => {
-                      return (
-                        <SelectItem key={item} value={item}>
-                          {item}
-                        </SelectItem>
-                      );
-                    }
-                  )}
-                </SelectContent>
-              </Select>
+              />
+              {
+                errors.companyName && (
+                    <p className="text-xs text-red-500">
+                        {errors.companyName.message}
+                    </p>
+                )
+              }
             </div>
+            <div className="grid gap-2">
+              <Label>Select Currency</Label>
+              {/* Radix Select is not a native input, so register() never sees
+                  its value — Controller is what actually binds it. */}
+              <Controller
+                name="currency"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={isLoading}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(currencyOption).map((item: string) => {
+                        return (
+                          <SelectItem key={item} value={item}>
+                            {item}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+            {
+              submitError && (
+                <p className="text-xs text-red-500">{submitError}</p>
+              )
+            }
             <Button  disabled={isLoading}>
                 {
                     isLoading ? "Please wait..." : "Finish onboarding"

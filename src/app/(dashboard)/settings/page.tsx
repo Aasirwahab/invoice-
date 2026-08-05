@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
+import TeamSettings from "../_component/TeamSettings";
 
 type TSignatureData = {
   name: string;
@@ -183,6 +184,16 @@ export default function SettingsPage() {
                 {isLoading ? "Please wait..." : "save"}
               </Button>
             </form>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/***Staff accounts and roles */}
+        <AccordionItem value="Team">
+          <AccordionTrigger className="font-semibold text-base cursor-pointer">
+            Team
+          </AccordionTrigger>
+          <AccordionContent>
+            <TeamSettings />
           </AccordionContent>
         </AccordionItem>
       </Accordion>

@@ -49,3 +49,17 @@ export async function getAppUser(): Promise<AppUser | null> {
     currency: doc.currency,
   };
 }
+
+/**
+ * The signed-in user's organization and role, or null before onboarding.
+ *
+ * This — not `user.currency` — is what says "this account is set up". Server
+ * Components gate on it, and it's the same membership row the Convex
+ * functions authorize against, so the UI and the data layer can't disagree.
+ */
+export async function getAppMembership() {
+  const token = await getConvexToken();
+  if (!token) return null;
+
+  return await fetchQuery(api.orgs.current, {}, { token });
+}

@@ -10,6 +10,8 @@
 
 import type * as dashboard from "../dashboard.js";
 import type * as invoices from "../invoices.js";
+import type * as migrations from "../migrations.js";
+import type * as orgs from "../orgs.js";
 import type * as settings from "../settings.js";
 import type * as users from "../users.js";
 
@@ -22,6 +24,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   dashboard: typeof dashboard;
   invoices: typeof invoices;
+  migrations: typeof migrations;
+  orgs: typeof orgs;
   settings: typeof settings;
   users: typeof users;
 }>;
