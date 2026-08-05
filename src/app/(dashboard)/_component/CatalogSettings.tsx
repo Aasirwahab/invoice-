@@ -36,6 +36,7 @@ export default function CatalogSettings() {
   const categories = useQuery(api.catalog.listCategories);
   const createBrand = useMutation(api.catalog.createBrand);
   const createCategory = useMutation(api.catalog.createCategory);
+  const seedDefaults = useMutation(api.catalog.seedDefaults);
 
   const [brandName, setBrandName] = useState<string>("");
   const [categoryName, setCategoryName] = useState<string>("");
@@ -77,8 +78,36 @@ export default function CatalogSettings() {
     }
   };
 
+  const handleSeed = async () => {
+    try {
+      setIsLoading(true);
+      const result = await seedDefaults({});
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Something went wrong"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <div className="grid gap-6 md:grid-cols-2">
+    <div className="grid gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+        <div>
+          <p className="text-sm font-medium">Start from a standard list</p>
+          <p className="text-xs text-muted-foreground">
+            Adds common watch brands and the six category types. Skips anything
+            you already have, so it is safe to run again.
+          </p>
+        </div>
+        <Button variant="outline" onClick={handleSeed} disabled={isLoading}>
+          {isLoading ? "Please wait..." : "Add defaults"}
+        </Button>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
       <div className="grid gap-3">
         <p className="text-sm font-medium">Brands</p>
         <form className="flex gap-2" onSubmit={handleAddBrand}>
@@ -143,6 +172,7 @@ export default function CatalogSettings() {
             </Badge>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );

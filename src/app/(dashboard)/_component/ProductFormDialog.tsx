@@ -33,10 +33,13 @@ type TAttrs =
   | { kind: "BATTERY"; cellCode?: string; voltage?: number }
   | { kind: "GENERIC" };
 
+type TImage = { storageId: Id<"_storage">; url: string };
+
 type TForm = {
   sku: string;
   name: string;
-  brandId: string;
+  /** Free text: an existing brand name, or a new one to create on save. */
+  brandName: string;
   categoryId: string;
   reference: string;
   description: string;
@@ -50,7 +53,7 @@ type TForm = {
 const EMPTY: TForm = {
   sku: "",
   name: "",
-  brandId: "",
+  brandName: "",
   categoryId: "",
   reference: "",
   description: "",
@@ -87,10 +90,13 @@ export default function ProductFormDialog({
 
   const createProduct = useMutation(api.catalog.createProduct);
   const updateProduct = useMutation(api.catalog.updateProduct);
+  const generateUploadUrl = useMutation(api.catalog.generateUploadUrl);
 
   const [form, setForm] = useState<TForm>(EMPTY);
   const [storedAttrs, setAttrs] = useState<TAttrs>({ kind: "GENERIC" });
+  const [images, setImages] = useState<TImage[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
   const isEdit = Boolean(productId);
@@ -105,12 +111,22 @@ export default function ProductFormDialog({
       setLoadedKey(desiredKey);
       setForm(EMPTY);
       setAttrs({ kind: "GENERIC" });
-    } else if (existing) {
+      setImages([]);
+      // `brands` is needed to turn the stored brandId back into a name, so
+      // hold off until it has loaded rather than showing a blank brand.
+    } else if (existing && brands) {
       setLoadedKey(desiredKey);
+      setImages(
+        (existing.images ?? []).flatMap((storageId, i) => {
+          const url = existing.imageUrls[i];
+          return url ? [{ storageId, url }] : [];
+        })
+      );
       setForm({
         sku: existing.sku,
         name: existing.name,
-        brandId: existing.brandId ?? "",
+        brandName:
+          brands.find((b) => b._id === existing.brandId)?.name ?? "",
         categoryId: existing.categoryId ?? "",
         reference: existing.reference ?? "",
         description: existing.description ?? "",
@@ -145,6 +161,51 @@ export default function ProductFormDialog({
   const set = (key: keyof TForm, value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
 
+  /**
+   * Uploads straight to Convex storage and keeps only the returned id. The
+   * file never passes through a mutation argument, so catalog photographs are
+   * not bounded by the document size limit.
+   */
+  const handleImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+
+    try {
+      setIsUploading(true);
+
+      for (const file of files) {
+        const uploadUrl = await generateUploadUrl();
+        const response = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+
+        if (!response.ok) throw new Error(`Upload failed for ${file.name}`);
+
+        const { storageId } = (await response.json()) as {
+          storageId: Id<"_storage">;
+        };
+
+        setImages((current) => [
+          ...current,
+          { storageId, url: URL.createObjectURL(file) },
+        ]);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not upload image"
+      );
+    } finally {
+      setIsUploading(false);
+      // Allow re-picking the same file after a failure.
+      e.target.value = "";
+    }
+  };
+
+  const removeImage = (storageId: Id<"_storage">) =>
+    setImages((current) => current.filter((i) => i.storageId !== storageId));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -159,10 +220,13 @@ export default function ProductFormDialog({
     const payload = {
       sku: form.sku,
       name: form.name,
-      brandId: form.brandId ? (form.brandId as Id<"brands">) : undefined,
+      // Sent as a name, not an id — the server matches an existing brand or
+      // creates it in the same transaction as the product.
+      brandName: form.brandName.trim(),
       categoryId: form.categoryId
         ? (form.categoryId as Id<"categories">)
         : undefined,
+      images: images.map((i) => i.storageId),
       reference: form.reference.trim() || undefined,
       description: form.description.trim() || undefined,
       costPrice,
@@ -226,22 +290,31 @@ export default function ProductFormDialog({
 
             <div className="grid gap-2">
               <Label>Brand</Label>
-              <Select
-                value={form.brandId}
-                onValueChange={(value) => set("brandId", value)}
+              {/* Free text backed by a datalist: pick an existing brand or
+                  type a new one, which is created when the product saves. */}
+              <Input
+                list="brand-options"
+                value={form.brandName}
+                onChange={(e) => set("brandName", e.target.value)}
+                placeholder="Seiko — or type a new brand"
                 disabled={isLoading}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select brand" />
-                </SelectTrigger>
-                <SelectContent>
-                  {brands?.map((brand) => (
-                    <SelectItem key={brand._id} value={brand._id}>
-                      {brand.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
+              <datalist id="brand-options">
+                {brands?.map((brand) => (
+                  <option key={brand._id} value={brand.name} />
+                ))}
+              </datalist>
+              {form.brandName.trim() &&
+                brands &&
+                !brands.some(
+                  (b) =>
+                    b.name.trim().toLowerCase() ===
+                    form.brandName.trim().toLowerCase()
+                ) && (
+                  <p className="text-xs text-muted-foreground">
+                    New brand — will be created on save.
+                  </p>
+                )}
             </div>
 
             <div className="grid gap-2">
@@ -262,6 +335,12 @@ export default function ProductFormDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {categories?.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No categories yet — add the defaults under Settings &gt;
+                  Brands &amp; Categories.
+                </p>
+              )}
             </div>
 
             <div className="grid gap-2">
@@ -505,6 +584,44 @@ export default function ProductFormDialog({
               </div>
             </div>
           )}
+
+          <div className="grid gap-2 border-t pt-4">
+            <Label>Images</Label>
+            <Input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImages}
+              disabled={isLoading || isUploading}
+            />
+            {isUploading && (
+              <p className="text-xs text-muted-foreground">Uploading...</p>
+            )}
+            {images.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {images.map((image) => (
+                  <div key={image.storageId} className="relative">
+                    {/* Convex storage URLs are signed and not a configured
+                        next/image remote host, so a plain img is correct. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={image.url}
+                      alt="Product"
+                      className="h-20 w-20 rounded border object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(image.storageId)}
+                      className="absolute -right-2 -top-2 h-5 w-5 rounded-full bg-black text-xs text-white"
+                      aria-label="Remove image"
+                    >
+                      x
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="grid gap-2">
             <Label>Description</Label>

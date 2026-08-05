@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { currentMember, requireRole } from "./orgs";
 
@@ -11,6 +11,14 @@ import { currentMember, requireRole } from "./orgs";
  * and wholesale prices are commercially sensitive and SALES should not be able
  * to move them.
  */
+
+type TCategoryKind =
+  | "WATCH"
+  | "STRAP"
+  | "BATTERY"
+  | "BOX"
+  | "TOOL"
+  | "OTHER";
 
 const categoryKind = v.union(
   v.literal("WATCH"),
@@ -124,6 +132,109 @@ export const updateBrand = mutation({
   },
 });
 
+/**
+ * Brands a watch wholesaler is most likely to actually stock, from
+ * mass-market up. Seeded on request rather than automatically — the list is a
+ * starting point, not an opinion about what you sell, and you can rename or
+ * deactivate any of them afterwards.
+ */
+const DEFAULT_BRANDS = [
+  "Seiko",
+  "Citizen",
+  "Casio",
+  "G-Shock",
+  "Orient",
+  "Alba",
+  "Q&Q",
+  "Titan",
+  "Sonata",
+  "Fastrack",
+  "Timex",
+  "Tissot",
+  "Fossil",
+  "Swatch",
+  "Rado",
+  "Longines",
+  "Bulova",
+  "Michael Kors",
+  "Armani Exchange",
+  "Daniel Wellington",
+  "Diesel",
+  "Guess",
+  "Police",
+  "Curren",
+  "Naviforce",
+  "Skmei",
+  "Rolex",
+  "Omega",
+  "TAG Heuer",
+];
+
+/**
+ * Categories with the right `kind` attached, so the product form shows watch
+ * fields for watches and strap fields for straps from the first product on.
+ */
+const DEFAULT_CATEGORIES: { name: string; kind: TCategoryKind }[] = [
+  { name: "Watches", kind: "WATCH" },
+  { name: "Straps & Bracelets", kind: "STRAP" },
+  { name: "Batteries", kind: "BATTERY" },
+  { name: "Watch Boxes", kind: "BOX" },
+  { name: "Tools & Spares", kind: "TOOL" },
+  { name: "Accessories", kind: "OTHER" },
+];
+
+/** Adds any of the defaults that aren't already present. Safe to re-run. */
+export const seedDefaults = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const member = await requireRole(ctx, "MANAGER");
+
+    const existingBrands = await ctx.db
+      .query("brands")
+      .withIndex("by_org", (q) => q.eq("orgId", member.orgId))
+      .collect();
+    const existingCategories = await ctx.db
+      .query("categories")
+      .withIndex("by_org", (q) => q.eq("orgId", member.orgId))
+      .collect();
+
+    const haveBrand = new Set(
+      existingBrands.map((b) => b.name.trim().toLowerCase())
+    );
+    const haveCategory = new Set(
+      existingCategories.map((c) => c.name.trim().toLowerCase())
+    );
+
+    let brandsAdded = 0;
+    for (const name of DEFAULT_BRANDS) {
+      if (haveBrand.has(name.toLowerCase())) continue;
+      await ctx.db.insert("brands", {
+        orgId: member.orgId,
+        name,
+        status: "ACTIVE",
+      });
+      brandsAdded++;
+    }
+
+    let categoriesAdded = 0;
+    for (const category of DEFAULT_CATEGORIES) {
+      if (haveCategory.has(category.name.toLowerCase())) continue;
+      await ctx.db.insert("categories", {
+        orgId: member.orgId,
+        name: category.name,
+        kind: category.kind,
+      });
+      categoriesAdded++;
+    }
+
+    return {
+      brandsAdded,
+      categoriesAdded,
+      message: `Added ${brandsAdded} brands and ${categoriesAdded} categories`,
+    };
+  },
+});
+
 /* ------------------------------------------------------------ categories */
 
 export const listCategories = query({
@@ -197,11 +308,14 @@ export const updateCategory = mutation({
  * knowing anything about Convex storage.
  */
 async function withImageUrls(ctx: QueryCtx, product: Doc<"products">) {
+  // Index-aligned with `images` — a null here means that storage id no longer
+  // resolves. Dropping nulls instead would shift every later URL onto the
+  // wrong image.
   const imageUrls = await Promise.all(
     (product.images ?? []).map((id) => ctx.storage.getUrl(id))
   );
 
-  return { ...product, imageUrls: imageUrls.filter(Boolean) as string[] };
+  return { ...product, imageUrls };
 }
 
 /**
@@ -277,10 +391,43 @@ export const getProduct = query({
   },
 });
 
+/**
+ * Resolves a typed brand name to an id, creating the brand if it is new.
+ *
+ * Done server-side inside the product mutation so a failed product insert
+ * cannot leave an orphan brand behind — creating it from the client would be
+ * two round trips with no way to undo the first.
+ */
+async function resolveBrand(
+  ctx: MutationCtx,
+  orgId: Id<"organizations">,
+  brandName: string | undefined,
+  brandId: Id<"brands"> | undefined
+): Promise<Id<"brands"> | undefined> {
+  const name = brandName?.trim();
+
+  // No name typed — keep whatever id the caller already had.
+  if (!name) return brandId;
+
+  const existing = await ctx.db
+    .query("brands")
+    .withIndex("by_org", (q) => q.eq("orgId", orgId))
+    .collect();
+
+  const match = existing.find(
+    (b) => b.name.trim().toLowerCase() === name.toLowerCase()
+  );
+  if (match) return match._id;
+
+  return await ctx.db.insert("brands", { orgId, name, status: "ACTIVE" });
+}
+
 const productFields = {
   sku: v.string(),
   name: v.string(),
   brandId: v.optional(v.id("brands")),
+  /** Free-typed alternative to brandId; created on the fly when unknown. */
+  brandName: v.optional(v.string()),
   categoryId: v.optional(v.id("categories")),
   reference: v.optional(v.string()),
   description: v.optional(v.string()),
@@ -302,9 +449,18 @@ export const createProduct = mutation({
     await assertSkuFree(ctx, member.orgId, sku);
     assertPrices(args.costPrice, args.wholesalePrice);
 
+    const { brandName, ...fields } = args;
+    const brandId = await resolveBrand(
+      ctx,
+      member.orgId,
+      brandName,
+      args.brandId
+    );
+
     const productId = await ctx.db.insert("products", {
-      ...args,
+      ...fields,
       sku,
+      brandId,
       orgId: member.orgId,
       status: "ACTIVE",
     });
@@ -319,6 +475,7 @@ export const updateProduct = mutation({
     sku: v.optional(v.string()),
     name: v.optional(v.string()),
     brandId: v.optional(v.id("brands")),
+    brandName: v.optional(v.string()),
     categoryId: v.optional(v.id("categories")),
     reference: v.optional(v.string()),
     description: v.optional(v.string()),
@@ -337,7 +494,7 @@ export const updateProduct = mutation({
   },
   handler: async (ctx, args) => {
     const member = await requireRole(ctx, "MANAGER");
-    const { productId, ...rest } = args;
+    const { productId, brandName, ...rest } = args;
 
     const existing = await ctx.db.get(productId);
     if (!existing || existing.orgId !== member.orgId) {
@@ -347,6 +504,17 @@ export const updateProduct = mutation({
     const patch: Record<string, unknown> = Object.fromEntries(
       Object.entries(rest).filter(([, value]) => value !== undefined)
     );
+
+    // A typed brand name wins over the stale id the form was loaded with,
+    // otherwise renaming to a new brand would silently keep the old one.
+    if (brandName !== undefined) {
+      patch.brandId = await resolveBrand(
+        ctx,
+        member.orgId,
+        brandName,
+        args.brandId
+      );
+    }
 
     if (typeof patch.sku === "string") {
       patch.sku = patch.sku.trim().toUpperCase();
