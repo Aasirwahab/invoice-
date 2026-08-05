@@ -36,6 +36,7 @@ export default function ProductsPage() {
 
   const [formOpen, setFormOpen] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<Id<"products"> | null>(null);
+  const [duplicateId, setDuplicateId] = useState<Id<"products"> | null>(null);
 
   const brands = useQuery(api.catalog.listBrands);
   const categories = useQuery(api.catalog.listCategories);
@@ -54,11 +55,20 @@ export default function ProductsPage() {
 
   const openCreate = () => {
     setEditingId(null);
+    setDuplicateId(null);
     setFormOpen(true);
   };
 
   const openEdit = (productId: Id<"products">) => {
     setEditingId(productId);
+    setDuplicateId(null);
+    setFormOpen(true);
+  };
+
+  /** Same reference, different dial colour — the common second entry. */
+  const openDuplicate = (productId: Id<"products">) => {
+    setEditingId(null);
+    setDuplicateId(productId);
     setFormOpen(true);
   };
 
@@ -180,13 +190,23 @@ export default function ProductsPage() {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEdit(product._id)}
-                  >
-                    Edit
-                  </Button>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openDuplicate(product._id)}
+                      title="Add another colour of this reference"
+                    >
+                      Variant
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEdit(product._id)}
+                    >
+                      Edit
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -227,6 +247,7 @@ export default function ProductsPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         productId={editingId}
+        duplicateFrom={duplicateId}
       />
     </div>
   );

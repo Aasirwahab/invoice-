@@ -72,8 +72,12 @@ const NEW_BRAND = "__NEW_BRAND__";
  * "Seiko" and "SKX007J1", and the stock code and display name fall out of
  * those. Both stay editable — these are a starting point, not a rule.
  */
-const buildSku = (brand: string, reference: string): string =>
-  [brand, reference]
+const buildSku = (
+  brand: string,
+  reference: string,
+  variant: string
+): string =>
+  [brand, reference, variant]
     .map((part) =>
       part
         .trim()
@@ -84,8 +88,25 @@ const buildSku = (brand: string, reference: string): string =>
     .filter(Boolean)
     .join("-");
 
-const buildName = (brand: string, reference: string): string =>
-  [brand.trim(), reference.trim()].filter(Boolean).join(" ");
+const buildName = (
+  brand: string,
+  reference: string,
+  variant: string
+): string =>
+  [brand.trim(), reference.trim(), variant.trim()]
+    .filter(Boolean)
+    .join(" ");
+
+/**
+ * The colour that distinguishes one variant of a reference from another.
+ * Casio MTP-135 in black and in blue are two products sharing a reference,
+ * so the colour has to reach the SKU or the second one collides.
+ */
+const variantOf = (attrs: TAttrs): string => {
+  if (attrs.kind === "WATCH") return attrs.dialColour ?? "";
+  if (attrs.kind === "STRAP") return attrs.colour ?? "";
+  return "";
+};
 
 /** Blank strings mean "not provided" — sending 0 would be a real price of zero. */
 const num = (value: string): number | undefined => {
@@ -99,16 +120,21 @@ export default function ProductFormDialog({
   open,
   onOpenChange,
   productId,
+  duplicateFrom,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   productId?: Id<"products"> | null;
+  /** Prefill from this product but save as a new one — the colour-variant flow. */
+  duplicateFrom?: Id<"products"> | null;
 }) {
   const brands = useQuery(api.catalog.listBrands);
   const categories = useQuery(api.catalog.listCategories);
+
+  const sourceId = productId ?? duplicateFrom ?? null;
   const existing = useQuery(
     api.catalog.getProduct,
-    productId ? { productId } : "skip"
+    sourceId ? { productId: sourceId } : "skip"
   );
 
   const createProduct = useMutation(api.catalog.createProduct);
@@ -133,10 +159,12 @@ export default function ProductFormDialog({
   // Load the form for whichever product the dialog was opened for. Done during
   // render rather than in an effect: an effect would paint the previous
   // product's values for a frame before correcting itself.
-  const desiredKey = open ? (productId ?? "new") : null;
+  const desiredKey = open
+    ? (productId ?? (duplicateFrom ? `dup-${duplicateFrom}` : "new"))
+    : null;
 
   if (desiredKey !== loadedKey) {
-    if (!open || !productId) {
+    if (!open || !sourceId) {
       setLoadedKey(desiredKey);
       setForm(EMPTY);
       setAttrs({ kind: "GENERIC" });
@@ -149,19 +177,24 @@ export default function ProductFormDialog({
     } else if (existing && brands) {
       setLoadedKey(desiredKey);
       setIsNewBrand(false);
-      // An existing product's SKU and name are deliberate and possibly
-      // printed on invoices — never let a brand change rewrite them.
-      setSkuTouched(true);
-      setNameTouched(true);
+      // Editing: the stored SKU and name are deliberate and may already be
+      // printed on invoices, so nothing may rewrite them. Duplicating: leave
+      // them free so changing the dial colour produces a distinct SKU.
+      setSkuTouched(isEdit);
+      setNameTouched(isEdit);
+      // Photographs are colour-specific, so a colour variant starts without
+      // the original's images rather than inheriting the wrong ones.
       setImages(
-        (existing.images ?? []).flatMap((storageId, i) => {
-          const url = existing.imageUrls[i];
-          return url ? [{ storageId, url }] : [];
-        })
+        isEdit
+          ? (existing.images ?? []).flatMap((storageId, i) => {
+              const url = existing.imageUrls[i];
+              return url ? [{ storageId, url }] : [];
+            })
+          : []
       );
       setForm({
-        sku: existing.sku,
-        name: existing.name,
+        sku: isEdit ? existing.sku : "",
+        name: isEdit ? existing.name : "",
         brandName:
           brands.find((b) => b._id === existing.brandId)?.name ?? "",
         categoryId: existing.categoryId ?? "",
@@ -198,23 +231,16 @@ export default function ProductFormDialog({
   const set = (key: keyof TForm, value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
 
-  /**
-   * Re-derives SKU and name from brand + reference, but only for whichever of
-   * the two the user has not typed into themselves. Once someone edits a
-   * field by hand, changing the brand must not overwrite their wording.
-   */
-  const setSource = (key: "brandName" | "reference", value: string) =>
-    setForm((current) => {
-      const brand = key === "brandName" ? value : current.brandName;
-      const reference = key === "reference" ? value : current.reference;
-
-      return {
-        ...current,
-        [key]: value,
-        sku: skuTouched ? current.sku : buildSku(brand, reference),
-        name: nameTouched ? current.name : buildName(brand, reference),
-      };
-    });
+  // Derived during render rather than written into state on every keystroke,
+  // so the dial colour reaches the SKU without each attribute field having to
+  // remember to re-run the derivation.
+  const variant = variantOf(attrs);
+  const effectiveSku = skuTouched
+    ? form.sku
+    : buildSku(form.brandName, form.reference, variant);
+  const effectiveName = nameTouched
+    ? form.name
+    : buildName(form.brandName, form.reference, variant);
 
   /**
    * Uploads straight to Convex storage and keeps only the returned id. The
@@ -287,8 +313,8 @@ export default function ProductFormDialog({
     }
 
     const payload = {
-      sku: form.sku,
-      name: form.name,
+      sku: effectiveSku,
+      name: effectiveName,
       // Sent as a name, not an id — the server matches an existing brand or
       // creates it in the same transaction as the product.
       brandName: form.brandName.trim(),
@@ -326,11 +352,19 @@ export default function ProductFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit product" : "Add product"}</DialogTitle>
+          <DialogTitle>
+            {isEdit
+              ? "Edit product"
+              : duplicateFrom
+                ? "Add colour variant"
+                : "Add product"}
+          </DialogTitle>
           <DialogDescription>
             {isEdit
               ? "Update this SKU's details and pricing."
-              : "Add a watch or accessory to your catalog."}
+              : duplicateFrom
+                ? "Same reference, different colour. Change the dial colour and the SKU follows."
+                : "Add a watch or accessory to your catalog."}
           </DialogDescription>
         </DialogHeader>
 
@@ -361,7 +395,7 @@ export default function ProductFormDialog({
                 <div className="flex gap-2">
                   <Input
                     value={form.brandName}
-                    onChange={(e) => setSource("brandName", e.target.value)}
+                    onChange={(e) => set("brandName", e.target.value)}
                     placeholder="New brand name"
                     autoFocus
                     disabled={isLoading}
@@ -386,10 +420,10 @@ export default function ProductFormDialog({
                     // for a text input instead of selecting anything.
                     if (value === NEW_BRAND) {
                       setIsNewBrand(true);
-                      setSource("brandName", "");
+                      set("brandName", "");
                       return;
                     }
-                    setSource("brandName", value);
+                    set("brandName", value);
                   }}
                   disabled={isLoading}
                 >
@@ -417,7 +451,7 @@ export default function ProductFormDialog({
               <Label>Reference no.</Label>
               <Input
                 value={form.reference}
-                onChange={(e) => setSource("reference", e.target.value)}
+                onChange={(e) => set("reference", e.target.value)}
                 placeholder="SKX007J1"
                 disabled={isLoading}
               />
@@ -426,7 +460,7 @@ export default function ProductFormDialog({
             <div className="grid gap-2">
               <Label>Name</Label>
               <Input
-                value={form.name}
+                value={effectiveName}
                 onChange={(e) => {
                   setNameTouched(true);
                   set("name", e.target.value);
@@ -440,7 +474,7 @@ export default function ProductFormDialog({
             <div className="grid gap-2">
               <Label>SKU</Label>
               <Input
-                value={form.sku}
+                value={effectiveSku}
                 onChange={(e) => {
                   setSkuTouched(true);
                   set("sku", e.target.value);
@@ -449,9 +483,10 @@ export default function ProductFormDialog({
                 required
                 disabled={isLoading}
               />
-              {!isEdit && !skuTouched && form.sku && (
+              {!isEdit && !skuTouched && effectiveSku && (
                 <p className="text-xs text-muted-foreground">
-                  Auto-filled from brand and reference — edit to override.
+                  Auto-filled from brand, reference and colour — edit to
+                  override.
                 </p>
               )}
             </div>
