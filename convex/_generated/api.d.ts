@@ -9,6 +9,7 @@
  */
 
 import type * as catalog from "../catalog.js";
+import type * as customers from "../customers.js";
 import type * as dashboard from "../dashboard.js";
 import type * as invoices from "../invoices.js";
 import type * as migrations from "../migrations.js";
@@ -24,6 +25,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   catalog: typeof catalog;
+  customers: typeof customers;
   dashboard: typeof dashboard;
   invoices: typeof invoices;
   migrations: typeof migrations;

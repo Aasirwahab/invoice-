@@ -16,6 +16,8 @@ const itemValidator = v.object({
   quantity: v.number(),
   price: v.number(),
   total: v.number(),
+  productId: v.optional(v.id("products")),
+  sku: v.optional(v.string()),
 });
 
 const statusValidator = v.union(
@@ -25,6 +27,7 @@ const statusValidator = v.union(
 );
 
 const invoiceFields = {
+  customerId: v.optional(v.id("customers")),
   invoice_no: v.string(),
   invoice_date: v.number(),
   due_date: v.number(),
@@ -118,6 +121,7 @@ export const create = mutation({
 export const update = mutation({
   args: {
     invoiceId: v.id("invoices"),
+    customerId: v.optional(v.id("customers")),
     invoice_no: v.optional(v.string()),
     invoice_date: v.optional(v.number()),
     due_date: v.optional(v.number()),

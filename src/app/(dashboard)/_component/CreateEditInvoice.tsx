@@ -9,6 +9,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { InvoiceSchemaZod } from "@/lib/zodSchema";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -69,7 +76,66 @@ export default function CreateEditInvoice({
       total: 0,
     },
   });
+  const customers = useQuery(api.customers.list, {});
+  const products = useQuery(api.catalog.listForPicker);
+
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
+
+  const activeCustomer = customers?.find((c) => c._id === selectedCustomerId);
+  const activeTier = activeCustomer?.tier ?? null;
+
+  /** Wholesale price less the customer's tier discount. */
+  const priceFor = (wholesalePrice: number): number => {
+    const discount = activeTier?.discountPercent ?? 0;
+    // Rounded to whole currency units — LKR is not quoted in fractions.
+    return Math.round(wholesalePrice * (1 - discount / 100));
+  };
+
+  /**
+   * Copies the dealer's stored address onto the invoice and re-prices any
+   * catalog lines already added, since the tier may differ from the last
+   * customer selected.
+   */
+  const handleSelectCustomer = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+
+    const customer = customers?.find((c) => c._id === customerId);
+    if (!customer) return;
+
+    setValue("to.name", customer.businessName, { shouldValidate: true });
+    setValue("to.email", customer.email, { shouldValidate: true });
+    setValue("to.address1", customer.address1, { shouldValidate: true });
+    setValue("to.address2", customer.address2 ?? "");
+    setValue("to.address3", customer.address3 ?? "");
+
+    const discount = customer.tier?.discountPercent ?? 0;
+    getValues("items").forEach((item, index) => {
+      const product = products?.find((p) => p._id === item.productId);
+      if (!product) return;
+      setValue(
+        `items.${index}.price`,
+        Math.round(product.wholesalePrice * (1 - discount / 100))
+      );
+    });
+  };
+
+  /** Fills a line from the catalog at the current customer's tier price. */
+  const handleSelectProduct = (index: number, productId: string) => {
+    const product = products?.find((p) => p._id === productId);
+    if (!product) return;
+
+    setValue(`items.${index}.productId`, productId);
+    setValue(`items.${index}.sku`, product.sku);
+    setValue(`items.${index}.item_name`, product.name, {
+      shouldValidate: true,
+    });
+    setValue(`items.${index}.price`, priceFor(product.wholesalePrice));
+
+    if (!getValues(`items.${index}.quantity`)) {
+      setValue(`items.${index}.quantity`, 1);
+    }
+  };
   const router = useRouter();
 
   const createInvoice = useMutation(api.invoices.create);
@@ -89,6 +155,8 @@ export default function CreateEditInvoice({
       invoice_date: new Date(existingInvoice.invoice_date),
       due_date: new Date(existingInvoice.due_date),
     });
+    // Restore the picker too, or saving an edit would drop the customer link.
+    setSelectedCustomerId(existingInvoice.customerId ?? "");
   }, [existingInvoice, reset]);
 
   //items
@@ -133,10 +201,23 @@ export default function CreateEditInvoice({
     invoice_no: data.invoice_no,
     invoice_date: data.invoice_date.getTime(),
     due_date: data.due_date.getTime(),
-    currency: data.currency ?? currency ?? "USD",
+    currency: data.currency ?? currency ?? "LKR",
+    customerId: selectedCustomerId
+      ? (selectedCustomerId as Id<"customers">)
+      : undefined,
     from: data.from,
     to: data.to,
-    items: data.items,
+    // Catalog lines carry the product they came from; typed lines don't.
+    items: data.items.map((item) => ({
+      item_name: item.item_name,
+      quantity: item.quantity,
+      price: item.price,
+      total: item.total,
+      productId: item.productId
+        ? (item.productId as Id<"products">)
+        : undefined,
+      sku: item.sku,
+    })),
     sub_total: data.sub_total,
     discount: data.discount,
     tax_percentage: data.tax_percentage,
@@ -389,6 +470,39 @@ export default function CreateEditInvoice({
         {/**to (client details) */}
         <div className="grid gap-2">
           <Label>To</Label>
+
+          {/* Picking a dealer fills the address below and prices every line at
+              their tier. The fields stay editable: `to` is what actually gets
+              printed, so a one-off delivery address must still be possible. */}
+          <Select
+            value={selectedCustomerId}
+            onValueChange={handleSelectCustomer}
+            disabled={isLoading}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select a customer, or type below" />
+            </SelectTrigger>
+            <SelectContent>
+              {customers?.map((customer) => (
+                <SelectItem key={customer._id} value={customer._id}>
+                  {customer.businessName}
+                  {customer.tier ? ` — ${customer.tier.name}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {customers?.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No customers yet — add them under Customers to stop retyping.
+            </p>
+          )}
+          {activeTier && activeTier.discountPercent > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {activeTier.name}: prices are {activeTier.discountPercent}% off
+              wholesale.
+            </p>
+          )}
+
           <div>
             <Input
               type="text"
@@ -465,9 +579,31 @@ export default function CreateEditInvoice({
         {fields.map((item, index) => {
           return (
             <div className="grid grid-cols-6 gap-2" key={index}>
-              <div className="col-span-3">
+              <div className="col-span-3 grid gap-1">
+                {/* Pick from the catalog and the name, SKU and tier price all
+                    fill in. The text field below stays authoritative, so a
+                    one-off line that is not a stocked product still works. */}
+                <Select
+                  value={watch(`items.${index}.productId`) ?? ""}
+                  onValueChange={(value) => handleSelectProduct(index, value)}
+                  disabled={isLoading}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a product..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products?.map((product) => (
+                      <SelectItem key={product._id} value={product._id}>
+                        {product.brandName
+                          ? `${product.brandName} — `
+                          : ""}
+                        {product.name} ({product.sku})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input
-                  placeholder="Enter item name"
+                  placeholder="or type a custom item"
                   type="text"
                   {...register(`items.${index}.item_name`, { required: true })}
                   disabled={isLoading}

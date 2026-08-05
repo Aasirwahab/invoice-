@@ -10,7 +10,12 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
-import { BookAIcon, LayoutDashboardIcon, WatchIcon } from "lucide-react";
+import {
+  BookAIcon,
+  LayoutDashboardIcon,
+  UsersIcon,
+  WatchIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -55,6 +60,18 @@ export default function DashboardSidebar({children} : { children : React.ReactNo
               >
                 <WatchIcon />
                 <span>Products</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild>
+              <Link
+                href={"/customers"}
+                className={cn(pathname.startsWith("/customers") && "bg-white")}
+              >
+                <UsersIcon />
+                <span>Customers</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

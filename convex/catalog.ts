@@ -386,6 +386,41 @@ export const listProducts = query({
   },
 });
 
+/**
+ * Slim, unpaged list for the invoice line picker: enough to search, label and
+ * price a row, without the images and attributes the catalog page needs.
+ */
+export const listForPicker = query({
+  args: {},
+  handler: async (ctx) => {
+    const member = await currentMember(ctx);
+    if (!member) return [];
+
+    const [products, brands] = await Promise.all([
+      ctx.db
+        .query("products")
+        .withIndex("by_org", (q) => q.eq("orgId", member.orgId))
+        .collect(),
+      ctx.db
+        .query("brands")
+        .withIndex("by_org", (q) => q.eq("orgId", member.orgId))
+        .collect(),
+    ]);
+
+    return products
+      .filter((p) => p.status === "ACTIVE")
+      .map((p) => ({
+        _id: p._id,
+        sku: p.sku,
+        name: p.name,
+        brandId: p.brandId,
+        brandName: brands.find((b) => b._id === p.brandId)?.name ?? "",
+        wholesalePrice: p.wholesalePrice,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
 export const getProduct = query({
   args: { productId: v.id("products") },
   handler: async (ctx, args) => {

@@ -48,6 +48,9 @@ export const InvoiceSchemaZod = z.object({
     quantity : z.number().min(0,{ message : "Quantity can't be negative"}),
     price : z.number().min(0,{ message : "price can't be negative"}),
     total : z.number().min(0,{ message : "total can't be negative"}),
+    // Set when the line was picked from the catalog rather than typed.
+    productId : z.string().optional(),
+    sku : z.string().optional(),
   })),
 
   sub_total: z.number(),

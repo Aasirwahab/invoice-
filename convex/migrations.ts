@@ -2,6 +2,7 @@ import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { applyCatalogDefaults } from "./catalog";
+import { applyDefaultTiers } from "./customers";
 
 /**
  * Phase 0 backfill: gives every pre-org user an organization, an OWNER
@@ -110,8 +111,14 @@ export const seedCatalogDefaults = internalMutation({
 
     const results = [];
     for (const org of orgs) {
-      const outcome = await applyCatalogDefaults(ctx, org._id);
-      results.push({ org: org.name, ...outcome });
+      const catalog = await applyCatalogDefaults(ctx, org._id);
+      const tiers = await applyDefaultTiers(ctx, org._id);
+      results.push({
+        org: org.name,
+        brandsAdded: catalog.brandsAdded,
+        categoriesAdded: catalog.categoriesAdded,
+        tiersAdded: tiers.added,
+      });
     }
 
     return results;

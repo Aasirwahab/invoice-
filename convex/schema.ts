@@ -22,6 +22,10 @@ const itemFields = {
   quantity: v.number(),
   price: v.number(),
   total: v.number(),
+  // Set when the line came from the catalog. Optional because older invoices
+  // predate the catalog and their lines were free text.
+  productId: v.optional(v.id("products")),
+  sku: v.optional(v.string()),
 };
 
 export const ROLES = ["OWNER", "MANAGER", "SALES", "VIEWER"] as const;
@@ -195,11 +199,48 @@ export default defineSchema({
       filterFields: ["orgId", "status"],
     }),
 
+  /**
+   * What kind of buyer this is, expressed as a discount off the product's
+   * wholesale price. A percentage rather than a per-product price list, so
+   * adding a tier does not mean re-pricing the whole catalog.
+   */
+  priceTiers: defineTable({
+    orgId: v.id("organizations"),
+    name: v.string(),
+    discountPercent: v.number(),
+  }).index("by_org", ["orgId"]),
+
+  /** Dealer accounts — the people you invoice, stored once instead of retyped. */
+  customers: defineTable({
+    orgId: v.id("organizations"),
+    businessName: v.string(),
+    contactName: v.optional(v.string()),
+    email: v.string(),
+    phone: v.optional(v.string()),
+    address1: v.string(),
+    address2: v.optional(v.string()),
+    address3: v.optional(v.string()),
+    taxId: v.optional(v.string()),
+    tierId: v.optional(v.id("priceTiers")),
+    creditLimit: v.optional(v.number()),
+    paymentTermsDays: v.optional(v.number()),
+    status: v.union(v.literal("ACTIVE"), v.literal("INACTIVE")),
+  })
+    .index("by_org", ["orgId"])
+    .searchIndex("search_business", {
+      searchField: "businessName",
+      filterFields: ["orgId"],
+    }),
+
   invoices: defineTable({
     // Optional only so existing rows survive the deploy that adds it. The
     // backfill in migrations.ts sets it, after which it becomes required.
     orgId: v.optional(v.id("organizations")),
     userId: v.id("users"),
+    // The dealer this was raised for. Optional: `to` still holds the address
+    // that was actually printed, so an invoice stays correct even if the
+    // customer record is later edited.
+    customerId: v.optional(v.id("customers")),
     invoice_no: v.string(),
     invoice_date: v.number(),
     due_date: v.number(),
