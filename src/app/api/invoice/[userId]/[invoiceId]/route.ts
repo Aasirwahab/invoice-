@@ -5,7 +5,10 @@ import { api } from "../../../../../../convex/_generated/api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { format } from "date-fns";
 import currencyFormat from "@/lib/CurrencyFormate";
-import { currencyOption, TCurrencyKey } from "@/lib/utils";
+
+const FULL_WIDTH = 211;
+const COLOR_CODE = "#8c00ff";
+const PAGE_BOTTOM = 270;
 
 export async function GET(
   request: NextRequest,
@@ -24,23 +27,9 @@ export async function GET(
     const invoice = result?.invoice ?? null;
     const settings = result?.settings ?? null;
 
-    if(!invoice){
-        return NextResponse.json({
-          message : "No invoice found"
-        },{
-          status : 500
-        })
+    if (!invoice) {
+      return NextResponse.json({ message: "No invoice found" }, { status: 404 });
     }
-
-    if(!settings){
-      return NextResponse.json({
-          message : "Please add logo and signature in setting section"
-        },{
-          status : 500
-        })
-    }
-
-
 
     const doc = new jsPDF({
       orientation: "portrait",
@@ -48,133 +37,206 @@ export async function GET(
       format: "a4",
     });
 
-    const FULL_WIDTH = 211
-    const COLOR_CODE = "#8c00ff"
-    const  currencyStr = invoice.currency as TCurrencyKey
-    const currency = currencyOption[currencyStr]
+    const money = (amount: number) => currencyFormat(amount, invoice.currency);
+
+    /**
+     * jsPDF throws on undefined, and most address lines are optional, so every
+     * write goes through here. This is what was turning an empty address line
+     * into a blank page and an unreadable "{}" error.
+     */
+    const text = (
+      value: string | number | undefined | null,
+      x: number,
+      y: number,
+      options?: { align?: "left" | "center" | "right" }
+    ) => {
+      if (value === undefined || value === null || value === "") return;
+      doc.text(String(value), x, y, options);
+    };
 
     //top border
-    doc.setFillColor(COLOR_CODE)
-    doc.rect(0,0,FULL_WIDTH,2,"F")
+    doc.setFillColor(COLOR_CODE);
+    doc.rect(0, 0, FULL_WIDTH, 2, "F");
 
-    //invoice logo
-    doc.addImage(settings.invoiceLogo as string,15,13,60,12)
-
-    //invoice text
-    doc.setFontSize(25)
-    doc.text("INVOICE",FULL_WIDTH - 15,22,{ align : 'right'})
-
-    //company details ( user generate)
-    doc.setFontSize(12)
-    doc.setFont('times','bold')
-    doc.text(invoice.from.name,15,35)
-
-    //display address company
-    doc.setFontSize(9)
-    doc.setFont("times","normal")
-    doc.text(invoice.from.address1,15,40)
-    doc.text(invoice.from.address2 as string,15,45)
-    doc.text(invoice.from.address3 as string,15,50)
-
-    //invoice no, invoice date and invoice due date
-    doc.text(`Invoice No. : ${invoice.invoice_no}`,FULL_WIDTH - 15,35, { align : "right"})
-    doc.text(`Invoice Date : ${format(invoice.invoice_date,"PP")}`,FULL_WIDTH - 15,40, { align : "right"})
-    doc.text(`Due Date. : ${format(invoice.due_date,"PP")}`,FULL_WIDTH - 15,45, { align : "right"})
-
-    doc.text("Bill To.",15,60)
-
-    //client details 
-    doc.setFontSize(12)
-    doc.setFont('times','bold')
-    doc.text(invoice.to.name,15,70)
-
-    //display address client
-    doc.setFontSize(9)
-    doc.setFont("times","normal")
-    doc.text(invoice.to.address1,15,75)
-    doc.text(invoice.to.address2 as string,15,80)
-    doc.text(invoice.to.address3 as string,15,85)
-
-    const ITESM_XAXIS = 18
-    const QUANTITY_XAXIS = 110
-    const PRICE_XAXIS = 140 
-    const TOTAL_AXIIS = 165
-
-    //items
-    doc.setFillColor(COLOR_CODE)
-    doc.rect(15,95,FULL_WIDTH - 30,6,"F")
-    doc.setTextColor("#fff")
-    doc.setFontSize(10.5)
-    doc.text("Items",ITESM_XAXIS,99)
-    doc.text("Quantity",QUANTITY_XAXIS,99)
-    doc.text("Price",PRICE_XAXIS,99)
-    doc.text("Total",TOTAL_AXIIS,99)
-
-    let Yaxis = 99
-    //ITEMS DETAILS
-    doc.setTextColor("#000")
-    doc.setFontSize(10)
-
-
-    invoice.items.forEach((item,index)=>{
-      Yaxis = Yaxis + 6
-      
-      doc.text(`${item.item_name}`,ITESM_XAXIS,Yaxis)
-      doc.text(`${item.quantity}`,QUANTITY_XAXIS,Yaxis)
-      doc.text(`${item.price}`,PRICE_XAXIS,Yaxis)
-      doc.text(`${item.total}`,TOTAL_AXIIS,Yaxis)
-    })
-
-    doc.text('Sub total : ',160,Yaxis+15)
-    doc.text(`${invoice.sub_total}`,FULL_WIDTH-15,Yaxis+15,{align : "right"})
-
-    doc.text('Discount : ',160,Yaxis+20)
-    doc.text(`-${invoice.discount}`,FULL_WIDTH-15,Yaxis+20,{align : "right"})
-
-    const subtotal_remove_discount = invoice.sub_total - (invoice.discount || 0)
-    doc.text(`${subtotal_remove_discount}`,FULL_WIDTH-15,Yaxis+25,{align : "right"})
-
-    //tax percentage
-    doc.text(`Tax ${invoice.tax_percentage}% :`,160,Yaxis+30)
-    let taxAmount = 0
-    if(invoice.tax_percentage){
-      taxAmount = (subtotal_remove_discount * Number(invoice.tax_percentage )) / 100
+    //invoice logo — optional, so the invoice still prints before branding is set
+    if (settings?.invoiceLogo) {
+      try {
+        doc.addImage(settings.invoiceLogo, 15, 13, 60, 12);
+      } catch {
+        // A corrupt or unsupported image must not cost you the whole invoice.
+      }
     }
-    doc.text(`${taxAmount}`,FULL_WIDTH-15,Yaxis+30,{align : "right"})
 
+    doc.setFontSize(25);
+    doc.setTextColor("#000");
+    text("INVOICE", FULL_WIDTH - 15, 22, { align: "right" });
 
-    //total amount
-    doc.setFont('times',"bold")
-    const totalAmount = Number(subtotal_remove_discount) - Number(taxAmount) //this line will be change
-    doc.text(`Total :`,160,Yaxis+35)
-    doc.text(`${totalAmount}`,FULL_WIDTH-15,Yaxis+35,{align : "right"})
+    //company details (issuer)
+    doc.setFontSize(12);
+    doc.setFont("times", "bold");
+    text(invoice.from.name, 15, 35);
 
+    doc.setFontSize(9);
+    doc.setFont("times", "normal");
+    text(invoice.from.address1, 15, 40);
+    text(invoice.from.address2, 15, 45);
+    text(invoice.from.address3, 15, 50);
 
-    //signature
-    doc.setFont('times',"normal")
-    doc.addImage(settings.signature?.image as string,FULL_WIDTH-60,Yaxis+40,50,20)
-    doc.text(`${settings.signature?.name as string}`,FULL_WIDTH-15,Yaxis+60,{align : "right"})
-
-
-    //notes
-    doc.setFont('times',"bold")
-    doc.text("Notes : ",15,Yaxis+70)
-    doc.setFont('times',"normal")
-    doc.text(`${invoice.notes}`,15,Yaxis+75)
-
-
-    const pdfBuffer = Buffer.from(doc.output('arraybuffer'))
-
-    return new NextResponse(pdfBuffer,{
-        headers : {
-            "content-type" : "application/pdf",
-            "content-disposition" : "inline"
-        }
-    })
-  } catch (error: any) {
-    console.log(error);
-    return NextResponse.json({
-      message: error || error.message || "Something went wrong",
+    //invoice no, date, due date
+    text(`Invoice No. : ${invoice.invoice_no}`, FULL_WIDTH - 15, 35, {
+      align: "right",
     });
+    text(
+      `Invoice Date : ${format(invoice.invoice_date, "PP")}`,
+      FULL_WIDTH - 15,
+      40,
+      { align: "right" }
+    );
+    text(`Due Date : ${format(invoice.due_date, "PP")}`, FULL_WIDTH - 15, 45, {
+      align: "right",
+    });
+
+    text("Bill To.", 15, 60);
+
+    //client details
+    doc.setFontSize(12);
+    doc.setFont("times", "bold");
+    text(invoice.to.name, 15, 70);
+
+    doc.setFontSize(9);
+    doc.setFont("times", "normal");
+    text(invoice.to.address1, 15, 75);
+    text(invoice.to.address2, 15, 80);
+    text(invoice.to.address3, 15, 85);
+    text(invoice.to.email, 15, 90);
+
+    const ITEM_X = 18;
+    const SKU_X = 95;
+    const QUANTITY_X = 125;
+    const PRICE_X = 145;
+    const TOTAL_X = FULL_WIDTH - 15;
+
+    const drawItemsHeader = (y: number) => {
+      doc.setFillColor(COLOR_CODE);
+      doc.rect(15, y - 4, FULL_WIDTH - 30, 6, "F");
+      doc.setTextColor("#fff");
+      doc.setFontSize(10.5);
+      doc.setFont("times", "bold");
+      text("Item", ITEM_X, y);
+      text("SKU", SKU_X, y);
+      text("Qty", QUANTITY_X, y);
+      text("Price", PRICE_X, y);
+      text("Total", TOTAL_X, y, { align: "right" });
+      doc.setTextColor("#000");
+      doc.setFont("times", "normal");
+      doc.setFontSize(10);
+    };
+
+    let yAxis = 103;
+    drawItemsHeader(yAxis);
+
+    for (const item of invoice.items) {
+      yAxis += 6;
+
+      // A wholesale order can easily run past one page.
+      if (yAxis > PAGE_BOTTOM) {
+        doc.addPage();
+        yAxis = 25;
+        drawItemsHeader(yAxis);
+        yAxis += 6;
+      }
+
+      // Long product names would otherwise run under the SKU column.
+      const name = doc.splitTextToSize(item.item_name, 72)[0];
+      text(name, ITEM_X, yAxis);
+      text(item.sku, SKU_X, yAxis);
+      text(item.quantity, QUANTITY_X, yAxis);
+      text(money(item.price), PRICE_X, yAxis);
+      text(money(item.total), TOTAL_X, yAxis, { align: "right" });
+    }
+
+    //totals — keep them on the page rather than running off the bottom
+    if (yAxis > PAGE_BOTTOM - 60) {
+      doc.addPage();
+      yAxis = 25;
+    }
+
+    const discount = invoice.discount ?? 0;
+    const netOfDiscount = invoice.sub_total - discount;
+    const taxPercentage = invoice.tax_percentage ?? 0;
+    const taxAmount = (netOfDiscount * taxPercentage) / 100;
+    // Tax is added to what the customer owes, not taken off it.
+    const totalAmount = netOfDiscount + taxAmount;
+
+    const LABEL_X = 150;
+    let totalsY = yAxis + 15;
+
+    text("Sub total :", LABEL_X, totalsY);
+    text(money(invoice.sub_total), TOTAL_X, totalsY, { align: "right" });
+
+    if (discount) {
+      totalsY += 5;
+      text("Discount :", LABEL_X, totalsY);
+      text(`-${money(discount)}`, TOTAL_X, totalsY, { align: "right" });
+    }
+
+    if (taxPercentage) {
+      totalsY += 5;
+      text(`Tax ${taxPercentage}% :`, LABEL_X, totalsY);
+      text(money(taxAmount), TOTAL_X, totalsY, { align: "right" });
+    }
+
+    totalsY += 7;
+    doc.setFont("times", "bold");
+    doc.setFontSize(11);
+    text("Total :", LABEL_X, totalsY);
+    text(money(totalAmount), TOTAL_X, totalsY, { align: "right" });
+    doc.setFont("times", "normal");
+    doc.setFontSize(10);
+
+    //signature — optional, same reasoning as the logo
+    let footerY = totalsY + 10;
+    if (settings?.signature?.image) {
+      try {
+        doc.addImage(settings.signature.image, FULL_WIDTH - 60, footerY, 50, 20);
+        footerY += 25;
+      } catch {
+        // ignore an unusable signature image
+      }
+    }
+    if (settings?.signature?.name) {
+      text(settings.signature.name, TOTAL_X, footerY, { align: "right" });
+      footerY += 10;
+    }
+
+    if (invoice.notes) {
+      doc.setFont("times", "bold");
+      text("Notes :", 15, footerY);
+      doc.setFont("times", "normal");
+      for (const line of doc.splitTextToSize(invoice.notes, FULL_WIDTH - 40)) {
+        footerY += 5;
+        text(line, 15, footerY);
+      }
+    }
+
+    const pdfBuffer = Buffer.from(doc.output("arraybuffer"));
+
+    return new NextResponse(pdfBuffer, {
+      headers: {
+        "content-type": "application/pdf",
+        "content-disposition": "inline",
+      },
+    });
+  } catch (error) {
+    // `error || error.message` always returned the Error object, which
+    // JSON.stringify renders as {} — the reason was being thrown away.
+    console.error("Invoice PDF failed", error);
+    return NextResponse.json(
+      {
+        message:
+          error instanceof Error ? error.message : "Could not build the invoice",
+      },
+      { status: 500 }
+    );
   }
 }

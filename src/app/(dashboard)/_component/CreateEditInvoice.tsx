@@ -281,13 +281,14 @@ export default function CreateEditInvoice({
   const sub_totalRemoveDiscount = sub_total - discount;
   const taxAmount =
     (sub_totalRemoveDiscount * watch("tax_percentage")) / 100 || 0;
-  const totalAmount = sub_totalRemoveDiscount - taxAmount;
+  //tax is added to what the customer owes, not taken off it
+  const totalAmount = sub_totalRemoveDiscount + taxAmount;
 
   useEffect(() => {
     setValue("total", totalAmount);
   }, [totalAmount]);
 
-  const totalAmountInCurrencyFormat = new Intl.NumberFormat("en-us", {
+  const totalAmountInCurrencyFormat = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: currency || watch("currency") || "INR",
   }).format(totalAmount);
