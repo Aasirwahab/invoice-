@@ -541,7 +541,7 @@ export default function ProductFormDialog({
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="grid gap-2">
               <Label>Cost price</Label>
               <Input
@@ -590,7 +590,7 @@ export default function ProductFormDialog({
           </div>
 
           {attrs.kind === "WATCH" && (
-            <div className="grid gap-4 sm:grid-cols-3 border-t pt-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 border-t pt-4">
               <div className="grid gap-2">
                 <Label>Case size (mm)</Label>
                 <Input
@@ -675,7 +675,7 @@ export default function ProductFormDialog({
           )}
 
           {attrs.kind === "STRAP" && (
-            <div className="grid gap-4 sm:grid-cols-4 border-t pt-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 border-t pt-4">
               <div className="grid gap-2">
                 <Label>Lug width (mm)</Label>
                 <Input
@@ -722,7 +722,7 @@ export default function ProductFormDialog({
           )}
 
           {attrs.kind === "BATTERY" && (
-            <div className="grid gap-4 sm:grid-cols-2 border-t pt-4">
+            <div className="grid grid-cols-2 gap-4 border-t pt-4">
               <div className="grid gap-2">
                 <Label>Cell code</Label>
                 <Input

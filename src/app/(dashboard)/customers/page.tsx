@@ -48,11 +48,12 @@ export default function CustomersPage() {
       <div className="border rounded-lg">
         <Table>
           <TableHeader>
+            {/* Contact and terms fold into the business cell on a phone. */}
             <TableRow>
               <TableHead>Business</TableHead>
-              <TableHead>Contact</TableHead>
+              <TableHead className="hidden md:table-cell">Contact</TableHead>
               <TableHead>Tier</TableHead>
-              <TableHead>Terms</TableHead>
+              <TableHead className="hidden lg:table-cell">Terms</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -84,9 +85,12 @@ export default function CustomersPage() {
                     <span className="text-xs text-muted-foreground">
                       {customer.address1}
                     </span>
+                    <span className="md:hidden text-xs text-muted-foreground">
+                      {customer.email}
+                    </span>
                   </div>
                 </TableCell>
-                <TableCell>
+                <TableCell className="hidden md:table-cell">
                   <div className="grid">
                     <span>{customer.contactName ?? "—"}</span>
                     <span className="text-xs text-muted-foreground">
@@ -106,7 +110,7 @@ export default function CustomersPage() {
                     <span className="text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell>
+                <TableCell className="hidden lg:table-cell">
                   {customer.paymentTermsDays
                     ? `${customer.paymentTermsDays} days`
                     : "—"}

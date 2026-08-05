@@ -137,13 +137,17 @@ export default function ProductsPage() {
       <div className="border rounded-lg">
         <Table>
           <TableHeader>
+            {/* On a phone the secondary columns fold into the name cell —
+                sideways scrolling to read a price is worse than a denser row. */}
             <TableRow>
-              <TableHead>SKU</TableHead>
+              <TableHead className="hidden md:table-cell">SKU</TableHead>
               <TableHead>Name</TableHead>
-              <TableHead>Brand</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
+              <TableHead className="hidden lg:table-cell">Brand</TableHead>
+              <TableHead className="hidden lg:table-cell text-right">
+                Cost
+              </TableHead>
               <TableHead className="text-right">Wholesale</TableHead>
-              <TableHead>Tracking</TableHead>
+              <TableHead className="hidden md:table-cell">Tracking</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -169,18 +173,30 @@ export default function ProductsPage() {
 
             {result?.data.map((product) => (
               <TableRow key={product._id}>
-                <TableCell className="font-mono text-xs">
+                <TableCell className="hidden md:table-cell font-mono text-xs">
                   {product.sku}
                 </TableCell>
-                <TableCell>{product.name}</TableCell>
-                <TableCell>{brandName(product.brandId)}</TableCell>
-                <TableCell className="text-right">
+                <TableCell>
+                  <div className="grid">
+                    <span>{product.name}</span>
+                    <span className="md:hidden font-mono text-xs text-muted-foreground">
+                      {product.sku}
+                    </span>
+                    <span className="lg:hidden text-xs text-muted-foreground">
+                      {brandName(product.brandId)}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="hidden lg:table-cell">
+                  {brandName(product.brandId)}
+                </TableCell>
+                <TableCell className="hidden lg:table-cell text-right">
                   {currencyFormat(product.costPrice, currency)}
                 </TableCell>
                 <TableCell className="text-right">
                   {currencyFormat(product.wholesalePrice, currency)}
                 </TableCell>
-                <TableCell>
+                <TableCell className="hidden md:table-cell">
                   <Badge
                     variant={
                       product.trackingMode === "SERIAL" ? "default" : "secondary"

@@ -298,7 +298,7 @@ export default function CreateEditInvoice({
       className="grid py-4 gap-4 lg:gap-6"
       onSubmit={handleSubmit(onSubmit)}
     >
-      <div className="grid grid-cols-2 gap-4 lg:gap-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:gap-6">
         <div className="grid">
           <div className="flex items-center">
             <div className="min-w-9 min-h-9 text-center border h-full flex justify-center items-center bg-neutral-100 rounded-l-md ">
@@ -412,7 +412,7 @@ export default function CreateEditInvoice({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:gap-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:gap-6">
         {/**from (current user details) */}
         <div className="grid gap-2">
           <Label>From</Label>
@@ -583,7 +583,9 @@ export default function CreateEditInvoice({
 
       {/**item details */}
       <div className="grid gap-2">
-        <div className="grid grid-cols-6 bg-neutral-50 py-1 px-1 gap-2">
+        {/* Column headings only make sense once the row is actually a row —
+            on a phone each line stacks and carries its own labels. */}
+        <div className="hidden sm:grid grid-cols-6 bg-neutral-50 py-1 px-1 gap-2">
           <div className="col-span-3">Item</div>
           <div>Quantity</div>
           <div>Price</div>
@@ -592,8 +594,11 @@ export default function CreateEditInvoice({
 
         {fields.map((item, index) => {
           return (
-            <div className="grid grid-cols-6 gap-2" key={index}>
-              <div className="col-span-3 grid gap-1">
+            <div
+              className="grid gap-2 rounded-lg border p-2 sm:grid-cols-6 sm:rounded-none sm:border-0 sm:p-0"
+              key={index}
+            >
+              <div className="sm:col-span-3 grid gap-1">
                 {/* Pick from the catalog and the name, SKU and tier price all
                     fill in. The text field below stays authoritative, so a
                     one-off line that is not a stocked product still works. */}
@@ -615,68 +620,98 @@ export default function CreateEditInvoice({
                   </p>
                 )}
               </div>
-              <div>
-                <Input
-                  placeholder="Enter quantity"
-                  {...register(`items.${index}.quantity`, {
-                    required: true,
-                    valueAsNumber: true,
-                  })}
-                  type="number"
+              {/* `sm:contents` dissolves this wrapper at the breakpoint so its
+                  three children rejoin the parent's six-column grid. Below it,
+                  they sit three-across on their own line. */}
+              <div className="grid grid-cols-3 gap-2 sm:contents">
+                <div>
+                  <span className="text-xs text-muted-foreground sm:hidden">
+                    Quantity
+                  </span>
+                  <Input
+                    placeholder="Qty"
+                    {...register(`items.${index}.quantity`, {
+                      required: true,
+                      valueAsNumber: true,
+                    })}
+                    type="number"
+                    inputMode="numeric"
+                    disabled={isLoading}
+                  />
+                  {errors.items && errors.items[index]?.quantity && (
+                    <p className="text-xs text-red-500">
+                      {errors.items[index]?.quantity.message}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground sm:hidden">
+                    Price
+                  </span>
+                  <Input
+                    placeholder="Price"
+                    {...register(`items.${index}.price`, {
+                      required: true,
+                      valueAsNumber: true,
+                    })}
+                    type="number"
+                    inputMode="decimal"
+                    disabled={isLoading}
+                  />
+                  {errors.items && errors.items[index]?.price && (
+                    <p className="text-xs text-red-500">
+                      {errors.items[index]?.price.message}
+                    </p>
+                  )}
+                </div>
+                <div className="relative">
+                  <span className="text-xs text-muted-foreground sm:hidden">
+                    Total
+                  </span>
+                  <Input
+                    placeholder="Total"
+                    {...register(`items.${index}.total`, {
+                      required: true,
+                      valueAsNumber: true,
+                    })}
+                    type="number"
+                    disabled
+                  />
+                  {errors.items && errors.items[index]?.total && (
+                    <p className="text-xs text-red-500">
+                      {errors.items[index]?.total.message}
+                    </p>
+                  )}
+                  {index !== 0 && (
+                    <div className="absolute top-0 right-0 hidden sm:block">
+                      <Button
+                        type="button"
+                        variant={"ghost"}
+                        size={"icon"}
+                        className="bg-red-50 text-red-500"
+                        onClick={() => handleRemoveItem(index)}
+                        disabled={isLoading}
+                        aria-label="Remove item"
+                      >
+                        <DeleteIcon />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {index !== 0 && (
+                <Button
+                  type="button"
+                  variant={"ghost"}
+                  className="bg-red-50 text-red-500 w-full sm:hidden"
+                  onClick={() => handleRemoveItem(index)}
                   disabled={isLoading}
-                />
-                {errors.items && errors.items[index]?.quantity && (
-                  <p className="text-xs text-red-500">
-                    {errors.items[index]?.quantity.message}
-                  </p>
-                )}
-              </div>
-              <div>
-                <Input
-                  placeholder="Enter price"
-                  {...register(`items.${index}.price`, {
-                    required: true,
-                    valueAsNumber: true,
-                  })}
-                  type="number"
-                  disabled={isLoading}
-                />
-                {errors.items && errors.items[index]?.price && (
-                  <p className="text-xs text-red-500">
-                    {errors.items[index]?.price.message}
-                  </p>
-                )}
-              </div>
-              <div className="relative ">
-                <Input
-                  placeholder="Enter total"
-                  {...register(`items.${index}.total`, {
-                    required: true,
-                    valueAsNumber: true,
-                  })}
-                  type="number"
-                  disabled
-                />
-                {errors.items && errors.items[index]?.total && (
-                  <p className="text-xs text-red-500">
-                    {errors.items[index]?.total.message}
-                  </p>
-                )}
-                {index !== 0 && (
-                  <div className="absolute top-0 right-0">
-                    <Button
-                      type="button"
-                      variant={"ghost"}
-                      size={"icon"}
-                      className="bg-red-50 text-red-500"
-                      onClick={() => handleRemoveItem(index)}
-                      disabled={isLoading}
-                    >
-                      <DeleteIcon />
-                    </Button>
-                  </div>
-                )}
-              </div>
+                >
+                  <DeleteIcon />
+                  Remove item
+                </Button>
+              )}
             </div>
           );
         })}
