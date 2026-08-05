@@ -67,6 +67,26 @@ const EMPTY: TForm = {
 /** Not a brand name — the dropdown entry that swaps in a text input. */
 const NEW_BRAND = "__NEW_BRAND__";
 
+/**
+ * Brand + reference is the only thing actually worth typing: a dealer knows
+ * "Seiko" and "SKX007J1", and the stock code and display name fall out of
+ * those. Both stay editable — these are a starting point, not a rule.
+ */
+const buildSku = (brand: string, reference: string): string =>
+  [brand, reference]
+    .map((part) =>
+      part
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+    )
+    .filter(Boolean)
+    .join("-");
+
+const buildName = (brand: string, reference: string): string =>
+  [brand.trim(), reference.trim()].filter(Boolean).join(" ");
+
 /** Blank strings mean "not provided" — sending 0 would be a real price of zero. */
 const num = (value: string): number | undefined => {
   const trimmed = value.trim();
@@ -104,6 +124,9 @@ export default function ProductFormDialog({
   const [isSeeding, setIsSeeding] = useState<boolean>(false);
   const [isNewBrand, setIsNewBrand] = useState<boolean>(false);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  // Once either is hand-edited it stops following brand/reference.
+  const [skuTouched, setSkuTouched] = useState<boolean>(false);
+  const [nameTouched, setNameTouched] = useState<boolean>(false);
 
   const isEdit = Boolean(productId);
 
@@ -119,11 +142,17 @@ export default function ProductFormDialog({
       setAttrs({ kind: "GENERIC" });
       setImages([]);
       setIsNewBrand(false);
+      setSkuTouched(false);
+      setNameTouched(false);
       // `brands` is needed to turn the stored brandId back into a name, so
       // hold off until it has loaded rather than showing a blank brand.
     } else if (existing && brands) {
       setLoadedKey(desiredKey);
       setIsNewBrand(false);
+      // An existing product's SKU and name are deliberate and possibly
+      // printed on invoices — never let a brand change rewrite them.
+      setSkuTouched(true);
+      setNameTouched(true);
       setImages(
         (existing.images ?? []).flatMap((storageId, i) => {
           const url = existing.imageUrls[i];
@@ -168,6 +197,24 @@ export default function ProductFormDialog({
 
   const set = (key: keyof TForm, value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
+
+  /**
+   * Re-derives SKU and name from brand + reference, but only for whichever of
+   * the two the user has not typed into themselves. Once someone edits a
+   * field by hand, changing the brand must not overwrite their wording.
+   */
+  const setSource = (key: "brandName" | "reference", value: string) =>
+    setForm((current) => {
+      const brand = key === "brandName" ? value : current.brandName;
+      const reference = key === "reference" ? value : current.reference;
+
+      return {
+        ...current,
+        [key]: value,
+        sku: skuTouched ? current.sku : buildSku(brand, reference),
+        name: nameTouched ? current.name : buildName(brand, reference),
+      };
+    });
 
   /**
    * Uploads straight to Convex storage and keeps only the returned id. The
@@ -309,33 +356,12 @@ export default function ProductFormDialog({
         <form className="grid gap-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>SKU</Label>
-              <Input
-                value={form.sku}
-                onChange={(e) => set("sku", e.target.value)}
-                placeholder="SEIKO-SKX007"
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Name</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
-                placeholder="Seiko SKX007 Diver"
-                required
-                disabled={isLoading}
-              />
-            </div>
-
-            <div className="grid gap-2">
               <Label>Brand</Label>
               {isNewBrand ? (
                 <div className="flex gap-2">
                   <Input
                     value={form.brandName}
-                    onChange={(e) => set("brandName", e.target.value)}
+                    onChange={(e) => setSource("brandName", e.target.value)}
                     placeholder="New brand name"
                     autoFocus
                     disabled={isLoading}
@@ -360,10 +386,10 @@ export default function ProductFormDialog({
                     // for a text input instead of selecting anything.
                     if (value === NEW_BRAND) {
                       setIsNewBrand(true);
-                      set("brandName", "");
+                      setSource("brandName", "");
                       return;
                     }
-                    set("brandName", value);
+                    setSource("brandName", value);
                   }}
                   disabled={isLoading}
                 >
@@ -383,6 +409,49 @@ export default function ProductFormDialog({
               {isNewBrand && (
                 <p className="text-xs text-muted-foreground">
                   Created when you save this product.
+                </p>
+              )}
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Reference no.</Label>
+              <Input
+                value={form.reference}
+                onChange={(e) => setSource("reference", e.target.value)}
+                placeholder="SKX007J1"
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Name</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => {
+                  setNameTouched(true);
+                  set("name", e.target.value);
+                }}
+                placeholder="Seiko SKX007J1"
+                required
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>SKU</Label>
+              <Input
+                value={form.sku}
+                onChange={(e) => {
+                  setSkuTouched(true);
+                  set("sku", e.target.value);
+                }}
+                placeholder="SEIKO-SKX007J1"
+                required
+                disabled={isLoading}
+              />
+              {!isEdit && !skuTouched && form.sku && (
+                <p className="text-xs text-muted-foreground">
+                  Auto-filled from brand and reference — edit to override.
                 </p>
               )}
             </div>
@@ -411,16 +480,6 @@ export default function ProductFormDialog({
                   Brands &amp; Categories.
                 </p>
               )}
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Reference no.</Label>
-              <Input
-                value={form.reference}
-                onChange={(e) => set("reference", e.target.value)}
-                placeholder="SKX007J1"
-                disabled={isLoading}
-              />
             </div>
 
             <div className="grid gap-2">
