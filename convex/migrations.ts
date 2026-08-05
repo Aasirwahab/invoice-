@@ -1,6 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { applyCatalogDefaults } from "./catalog";
 
 /**
  * Phase 0 backfill: gives every pre-org user an organization, an OWNER
@@ -92,6 +93,30 @@ async function ensureOrgFor(
 
   return { id: orgId, created: true };
 }
+
+/**
+ * Seeds the default brands and categories into every organization that has
+ * none. The same thing the "Add common brands" button does, but runnable
+ * without a browser session:
+ *
+ *   pnpm dlx convex run migrations:seedCatalogDefaults
+ *
+ * Idempotent — existing names are skipped.
+ */
+export const seedCatalogDefaults = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const orgs = await ctx.db.query("organizations").collect();
+
+    const results = [];
+    for (const org of orgs) {
+      const outcome = await applyCatalogDefaults(ctx, org._id);
+      results.push({ org: org.name, ...outcome });
+    }
+
+    return results;
+  },
+});
 
 /**
  * Verification helper — reports anything the backfill left behind. Expect all

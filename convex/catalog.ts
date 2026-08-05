@@ -188,14 +188,26 @@ export const seedDefaults = mutation({
   args: {},
   handler: async (ctx) => {
     const member = await requireRole(ctx, "MANAGER");
+    return await applyCatalogDefaults(ctx, member.orgId);
+  },
+});
 
+/**
+ * The seeding itself, split from its auth wrapper so it can also be driven
+ * from the CLI for an org whose owner has not clicked the button yet.
+ */
+export async function applyCatalogDefaults(
+  ctx: MutationCtx,
+  orgId: Id<"organizations">
+) {
+  {
     const existingBrands = await ctx.db
       .query("brands")
-      .withIndex("by_org", (q) => q.eq("orgId", member.orgId))
+      .withIndex("by_org", (q) => q.eq("orgId", orgId))
       .collect();
     const existingCategories = await ctx.db
       .query("categories")
-      .withIndex("by_org", (q) => q.eq("orgId", member.orgId))
+      .withIndex("by_org", (q) => q.eq("orgId", orgId))
       .collect();
 
     const haveBrand = new Set(
@@ -208,11 +220,7 @@ export const seedDefaults = mutation({
     let brandsAdded = 0;
     for (const name of DEFAULT_BRANDS) {
       if (haveBrand.has(name.toLowerCase())) continue;
-      await ctx.db.insert("brands", {
-        orgId: member.orgId,
-        name,
-        status: "ACTIVE",
-      });
+      await ctx.db.insert("brands", { orgId, name, status: "ACTIVE" });
       brandsAdded++;
     }
 
@@ -220,7 +228,7 @@ export const seedDefaults = mutation({
     for (const category of DEFAULT_CATEGORIES) {
       if (haveCategory.has(category.name.toLowerCase())) continue;
       await ctx.db.insert("categories", {
-        orgId: member.orgId,
+        orgId,
         name: category.name,
         kind: category.kind,
       });
@@ -232,8 +240,8 @@ export const seedDefaults = mutation({
       categoriesAdded,
       message: `Added ${brandsAdded} brands and ${categoriesAdded} categories`,
     };
-  },
-});
+  }
+}
 
 /* ------------------------------------------------------------ categories */
 

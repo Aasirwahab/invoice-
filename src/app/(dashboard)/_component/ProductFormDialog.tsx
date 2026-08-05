@@ -64,6 +64,9 @@ const EMPTY: TForm = {
   reorderPoint: "",
 };
 
+/** Not a brand name — the dropdown entry that swaps in a text input. */
+const NEW_BRAND = "__NEW_BRAND__";
+
 /** Blank strings mean "not provided" — sending 0 would be a real price of zero. */
 const num = (value: string): number | undefined => {
   const trimmed = value.trim();
@@ -91,12 +94,15 @@ export default function ProductFormDialog({
   const createProduct = useMutation(api.catalog.createProduct);
   const updateProduct = useMutation(api.catalog.updateProduct);
   const generateUploadUrl = useMutation(api.catalog.generateUploadUrl);
+  const seedDefaults = useMutation(api.catalog.seedDefaults);
 
   const [form, setForm] = useState<TForm>(EMPTY);
   const [storedAttrs, setAttrs] = useState<TAttrs>({ kind: "GENERIC" });
   const [images, setImages] = useState<TImage[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isSeeding, setIsSeeding] = useState<boolean>(false);
+  const [isNewBrand, setIsNewBrand] = useState<boolean>(false);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
   const isEdit = Boolean(productId);
@@ -112,10 +118,12 @@ export default function ProductFormDialog({
       setForm(EMPTY);
       setAttrs({ kind: "GENERIC" });
       setImages([]);
+      setIsNewBrand(false);
       // `brands` is needed to turn the stored brandId back into a name, so
       // hold off until it has loaded rather than showing a blank brand.
     } else if (existing && brands) {
       setLoadedKey(desiredKey);
+      setIsNewBrand(false);
       setImages(
         (existing.images ?? []).flatMap((storageId, i) => {
           const url = existing.imageUrls[i];
@@ -203,6 +211,20 @@ export default function ProductFormDialog({
     }
   };
 
+  const handleSeed = async () => {
+    try {
+      setIsSeeding(true);
+      const result = await seedDefaults({});
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not add defaults"
+      );
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
   const removeImage = (storageId: Id<"_storage">) =>
     setImages((current) => current.filter((i) => i.storageId !== storageId));
 
@@ -265,6 +287,25 @@ export default function ProductFormDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* First run: both lists are empty, and hiding the fix away in
+            Settings makes the form look broken rather than unconfigured. */}
+        {brands?.length === 0 && categories?.length === 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">
+              No brands or categories set up yet.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleSeed}
+              disabled={isSeeding}
+            >
+              {isSeeding ? "Adding..." : "Add common brands"}
+            </Button>
+          </div>
+        )}
+
         <form className="grid gap-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
@@ -290,31 +331,60 @@ export default function ProductFormDialog({
 
             <div className="grid gap-2">
               <Label>Brand</Label>
-              {/* Free text backed by a datalist: pick an existing brand or
-                  type a new one, which is created when the product saves. */}
-              <Input
-                list="brand-options"
-                value={form.brandName}
-                onChange={(e) => set("brandName", e.target.value)}
-                placeholder="Seiko — or type a new brand"
-                disabled={isLoading}
-              />
-              <datalist id="brand-options">
-                {brands?.map((brand) => (
-                  <option key={brand._id} value={brand.name} />
-                ))}
-              </datalist>
-              {form.brandName.trim() &&
-                brands &&
-                !brands.some(
-                  (b) =>
-                    b.name.trim().toLowerCase() ===
-                    form.brandName.trim().toLowerCase()
-                ) && (
-                  <p className="text-xs text-muted-foreground">
-                    New brand — will be created on save.
-                  </p>
-                )}
+              {isNewBrand ? (
+                <div className="flex gap-2">
+                  <Input
+                    value={form.brandName}
+                    onChange={(e) => set("brandName", e.target.value)}
+                    placeholder="New brand name"
+                    autoFocus
+                    disabled={isLoading}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setIsNewBrand(false);
+                      set("brandName", "");
+                    }}
+                    disabled={isLoading}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Select
+                  value={form.brandName}
+                  onValueChange={(value) => {
+                    // Sentinel rather than a real brand — swaps the control
+                    // for a text input instead of selecting anything.
+                    if (value === NEW_BRAND) {
+                      setIsNewBrand(true);
+                      set("brandName", "");
+                      return;
+                    }
+                    set("brandName", value);
+                  }}
+                  disabled={isLoading}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select brand" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {brands?.map((brand) => (
+                      <SelectItem key={brand._id} value={brand.name}>
+                        {brand.name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={NEW_BRAND}>+ Add new brand</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+              {isNewBrand && (
+                <p className="text-xs text-muted-foreground">
+                  Created when you save this product.
+                </p>
+              )}
             </div>
 
             <div className="grid gap-2">
