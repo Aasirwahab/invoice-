@@ -15,3 +15,6 @@ export const currencyOption = {
 };
 
  export type TCurrencyKey = keyof typeof currencyOption;
+
+/** Sri Lankan rupee — what this dealership trades in day to day. */
+export const DEFAULT_CURRENCY: TCurrencyKey = "LKR";

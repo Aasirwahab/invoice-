@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { currencyOption } from "@/lib/utils";
+import { currencyOption, DEFAULT_CURRENCY } from "@/lib/utils";
 import { onboardingSchema } from "@/lib/zodSchema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
@@ -35,7 +35,7 @@ export default function OnboardingPage() {
   } = useForm<z.infer<typeof onboardingSchema>>({
     resolver: zodResolver(onboardingSchema),
     defaultValues: {
-      currency: "USD",
+      currency: DEFAULT_CURRENCY,
     },
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -72,7 +72,7 @@ export default function OnboardingPage() {
         })
         await createOrg({
             name : data.companyName,
-            defaultCurrency : data.currency ?? "USD",
+            defaultCurrency : data.currency ?? DEFAULT_CURRENCY,
         })
         router.push("/dashboard")
     } catch (error) {

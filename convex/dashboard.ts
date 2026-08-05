@@ -34,7 +34,7 @@ export const stats = query({
 
     return {
       totalRevenue,
-      currency: org?.defaultCurrency ?? "USD",
+      currency: org?.defaultCurrency ?? "LKR",
       totalInvoice: recent.length,
       paidInvoice: recent.filter((i) => i.status === "PAID").length,
       UnpaidInvoice: recent.filter((i) => i.status === "UNPAID").length,

@@ -77,7 +77,7 @@ async function ensureOrgFor(
 
   const orgId = await ctx.db.insert("organizations", {
     name,
-    defaultCurrency: user.currency ?? "USD",
+    defaultCurrency: user.currency ?? "LKR",
     email: user.email,
   });
 

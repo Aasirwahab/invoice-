@@ -130,12 +130,16 @@ joins `users` to an org instead.
 *Verify:* two staff logins under one org see the same invoice list; existing invoices
 still open and still render a PDF.
 
-### Phase 1 — Product catalog
-Brands, categories, products with image upload to Convex storage. List with search,
-brand/category filter, and the watch/accessory attribute forms. CSV import for the
-initial load — you are not typing in a catalog by hand.
+### Phase 1 — Product catalog — DONE (images pending)
+Brands, categories, products. List with text search, brand/category filter and
+pagination; the product form swaps its attribute block based on the category kind.
+CSV import creates brands and categories named in the file and updates existing SKUs in
+place, so a corrected re-import is a sync rather than a duplicate.
 
-*Verify:* import a CSV of real SKUs, find one by SKU and by brand, edit it, see images.
+Images are modelled (`products.images` as `_storage` ids, `generateUploadUrl` mutation)
+but the upload UI is not built — see Outstanding below.
+
+*Verify:* import a CSV of real SKUs, find one by SKU and by brand, edit it.
 
 ### Phase 2 — Dealer accounts & pricing
 Customers CRUD, price tiers, price rules with a resolver. The invoice `to` block becomes
@@ -201,6 +205,17 @@ invoices. Strictly scoped so a dealer can only ever read their own records.
 - Phase 3 needs 1. Phase 4 needs 2 and 3. Phases 5–8 need 3. Phase 9 needs 2 and 4.
 - The first genuinely useful milestone is end of Phase 4 — catalog, dealers, stock, and
   invoices that actually move stock. Phases 0–4 are the real project; 5–9 are expansion.
+
+## Outstanding
+
+- **Product image upload UI.** The schema, storage ids and `catalog.generateUploadUrl`
+  are in place; the picker and thumbnail strip in the product form are not. Deliberately
+  deferred — it is self-contained and blocks nothing in Phase 2 or 3.
+- **`invoices.orgId` / `settings.orgId` are still `v.optional`.** Required for existing
+  rows to survive the Phase 0 deploy. Tighten to required once the backfill has run
+  against production.
+- **Multi-user behaviour is untested.** Everything so far was exercised with a single
+  account; the two-staff-one-org check still needs a second real sign-in.
 
 ## Working rules for implementation
 

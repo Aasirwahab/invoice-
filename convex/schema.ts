@@ -32,6 +32,64 @@ const roleValidator = v.union(
   v.literal("VIEWER")
 );
 
+export const CATEGORY_KINDS = [
+  "WATCH",
+  "STRAP",
+  "BATTERY",
+  "BOX",
+  "TOOL",
+  "OTHER",
+] as const;
+
+const categoryKindValidator = v.union(
+  v.literal("WATCH"),
+  v.literal("STRAP"),
+  v.literal("BATTERY"),
+  v.literal("BOX"),
+  v.literal("TOOL"),
+  v.literal("OTHER")
+);
+
+/**
+ * Category-specific product attributes, discriminated on `kind`. A strap has a
+ * lug width and a watch has a movement; forcing both into one flat bag makes
+ * every field optional and every filter a guess.
+ */
+const productAttrsValidator = v.union(
+  v.object({
+    kind: v.literal("WATCH"),
+    caseSizeMm: v.optional(v.number()),
+    movement: v.optional(
+      v.union(
+        v.literal("AUTOMATIC"),
+        v.literal("QUARTZ"),
+        v.literal("MANUAL"),
+        v.literal("SOLAR"),
+        v.literal("KINETIC")
+      )
+    ),
+    dialColour: v.optional(v.string()),
+    caseMaterial: v.optional(v.string()),
+    waterResistanceM: v.optional(v.number()),
+    warrantyMonths: v.optional(v.number()),
+  }),
+  v.object({
+    kind: v.literal("STRAP"),
+    lugWidthMm: v.optional(v.number()),
+    material: v.optional(v.string()),
+    colour: v.optional(v.string()),
+    lengthMm: v.optional(v.number()),
+  }),
+  v.object({
+    kind: v.literal("BATTERY"),
+    cellCode: v.optional(v.string()),
+    voltage: v.optional(v.number()),
+  }),
+  v.object({
+    kind: v.literal("GENERIC"),
+  })
+);
+
 export default defineSchema({
   users: defineTable({
     // Clerk's user id — the link between Clerk identity and app data.
@@ -83,6 +141,59 @@ export default defineSchema({
     .index("by_clerkId", ["clerkId"])
     .index("by_org", ["orgId"])
     .index("by_email", ["email"]),
+
+  brands: defineTable({
+    orgId: v.id("organizations"),
+    name: v.string(),
+    logo: v.optional(v.id("_storage")),
+    status: v.union(v.literal("ACTIVE"), v.literal("INACTIVE")),
+  }).index("by_org", ["orgId"]),
+
+  categories: defineTable({
+    orgId: v.id("organizations"),
+    name: v.string(),
+    kind: categoryKindValidator,
+  }).index("by_org", ["orgId"]),
+
+  /**
+   * One row per sellable SKU. Dial/colour variants of the same reference get
+   * their own SKU rather than a variant table — wholesale pricing is per-SKU
+   * anyway, so a variant layer would buy nothing.
+   *
+   * Images are Convex storage ids, not base64. A watch catalog carries real
+   * photographs, and inlining them would blow the 1MB document limit and make
+   * every list query ship the whole image set.
+   */
+  products: defineTable({
+    orgId: v.id("organizations"),
+    sku: v.string(),
+    name: v.string(),
+    brandId: v.optional(v.id("brands")),
+    categoryId: v.optional(v.id("categories")),
+    reference: v.optional(v.string()),
+    description: v.optional(v.string()),
+    images: v.optional(v.array(v.id("_storage"))),
+
+    costPrice: v.number(),
+    wholesalePrice: v.number(),
+    msrp: v.optional(v.number()),
+
+    // SERIAL products are counted piece by piece in Phase 3; QUANTITY products
+    // carry a single on-hand number.
+    trackingMode: v.union(v.literal("QUANTITY"), v.literal("SERIAL")),
+    reorderPoint: v.optional(v.number()),
+
+    status: v.union(v.literal("ACTIVE"), v.literal("DISCONTINUED")),
+    attrs: v.optional(productAttrsValidator),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_org_sku", ["orgId", "sku"])
+    .index("by_org_brand", ["orgId", "brandId"])
+    .index("by_org_category", ["orgId", "categoryId"])
+    .searchIndex("search_name", {
+      searchField: "name",
+      filterFields: ["orgId", "status"],
+    }),
 
   invoices: defineTable({
     // Optional only so existing rows survive the deploy that adds it. The

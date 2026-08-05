@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as catalog from "../catalog.js";
 import type * as dashboard from "../dashboard.js";
 import type * as invoices from "../invoices.js";
 import type * as migrations from "../migrations.js";
@@ -22,6 +23,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  catalog: typeof catalog;
   dashboard: typeof dashboard;
   invoices: typeof invoices;
   migrations: typeof migrations;
