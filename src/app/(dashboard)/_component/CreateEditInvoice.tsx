@@ -79,6 +79,11 @@ export default function CreateEditInvoice({
   });
   const customers = useQuery(api.customers.list, {});
   const products = useQuery(api.catalog.listForPicker);
+  // Only needed when raising a new invoice — an edit keeps its own number.
+  const suggestedNumber = useQuery(
+    api.invoices.nextNumber,
+    invoiceId ? "skip" : {}
+  );
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
@@ -159,6 +164,13 @@ export default function CreateEditInvoice({
     // Restore the picker too, or saving an edit would drop the customer link.
     setSelectedCustomerId(existingInvoice.customerId ?? "");
   }, [existingInvoice, reset]);
+
+  //prefill the next number on a new invoice, without overwriting a typed one
+  useEffect(() => {
+    if (!suggestedNumber) return;
+    if (getValues("invoice_no")) return;
+    setValue("invoice_no", suggestedNumber);
+  }, [suggestedNumber, getValues, setValue]);
 
   //items
   const { fields, append, remove } = useFieldArray({

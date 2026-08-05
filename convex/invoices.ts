@@ -87,6 +87,40 @@ export const list = query({
   },
 });
 
+/**
+ * The next invoice number to suggest, as "01", "02", ... continuing from the
+ * highest number already used.
+ *
+ * Only the trailing digits are read, so "INV-07" and "07" both count as 7 and
+ * a hand-typed reference like "PROFORMA-A" is simply ignored rather than
+ * resetting the sequence. Padded to two digits until the count passes 99,
+ * after which it just grows.
+ */
+export const nextNumber = query({
+  args: {},
+  handler: async (ctx) => {
+    const member = await currentMember(ctx);
+    if (!member) return null;
+
+    const [invoices, org] = await Promise.all([
+      ctx.db
+        .query("invoices")
+        .withIndex("by_orgId", (q) => q.eq("orgId", member.orgId))
+        .collect(),
+      ctx.db.get(member.orgId),
+    ]);
+
+    const highest = invoices.reduce((max, invoice) => {
+      const digits = invoice.invoice_no.match(/(\d+)\s*$/);
+      if (!digits) return max;
+      return Math.max(max, Number(digits[1]));
+    }, 0);
+
+    const next = highest + 1;
+    return `${org?.invoicePrefix ?? ""}${String(next).padStart(2, "0")}`;
+  },
+});
+
 export const getById = query({
   args: { invoiceId: v.id("invoices") },
   handler: async (ctx, args) => {
@@ -105,6 +139,21 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const member = await requireRole(ctx, "SALES");
     const user = await requireUser(ctx);
+
+    // The number is only *suggested* to the form, so two people raising an
+    // invoice at the same time can both be handed "07". Catch it here rather
+    // than shipping two invoices with the same reference.
+    const clash = await ctx.db
+      .query("invoices")
+      .withIndex("by_orgId", (q) => q.eq("orgId", member.orgId))
+      .filter((q) => q.eq(q.field("invoice_no"), args.invoice_no))
+      .first();
+
+    if (clash) {
+      throw new Error(
+        `Invoice number "${args.invoice_no}" is already used — reload to get the next one`
+      );
+    }
 
     const invoiceId = await ctx.db.insert("invoices", {
       ...args,
